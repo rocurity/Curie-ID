@@ -1,7 +1,4 @@
 /*
-  Content-Security-Policy: scripts only from this site, no inline scripts.
-  If you use a custom domain for the Worker, add it to connect-src.
-*/
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.workers.dev; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
