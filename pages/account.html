@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Curie ID</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#1c1a17;background:#f4efe6}
+  h1{font-family:Georgia,serif;font-weight:500}h2{font-family:Georgia,serif;font-weight:500;margin-top:2rem}
+  section{background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.2rem 1.4rem;margin-bottom:1rem}
+  form{display:grid;gap:.7rem;margin-top:.6rem}
+  label{display:grid;gap:.25rem;font-weight:500}
+  input,select{font:inherit;padding:.5rem .55rem;border:1px solid #cfc5b3;border-radius:4px;background:#fff}
+  button{font:inherit;font-weight:600;padding:.5rem .9rem;border:0;border-radius:4px;background:#2d5b4e;color:#fff;cursor:pointer;justify-self:start}
+  button.ghost{background:transparent;color:#1c1a17;border:1px solid #cfc5b3}
+  button.danger{background:#9b2c1f}
+  ul{list-style:none;padding:0;margin:.5rem 0}
+  li{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid #e4dccd;flex-wrap:wrap}
+  .muted{color:#6b645a;font-size:.92rem}
+  .status{min-height:1.2em;font-size:.95rem}.status.bad{color:#9b2c1f}.status.ok{color:#2d5b4e}
+  .top{display:flex;justify-content:space-between;align-items:center}
+</style>
+</head>
+<body>
+<div class="top"><h1>Your Curie ID</h1><button class="ghost" id="signout">Sign out</button></div>
+<div id="app"><p class="muted">Loading…</p></div>
+
+<script src="config.js"></script>
+<script src="curie.js"></script>
+<script src="account.js"></script>
+</body>
+</html>

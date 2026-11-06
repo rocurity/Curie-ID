@@ -1,0 +1,16 @@
+# Dependencies (reinstalled with npm install)
+node_modules/
+
+# Wrangler local state and local secrets. Never commit these.
+.wrangler/
+.dev.vars
+.env
+.env.*
+
+# Logs and OS / editor junk
+npm-debug.log*
+yarn-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
