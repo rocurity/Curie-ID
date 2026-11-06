@@ -15,5 +15,5 @@ crons = ["0 3 * * *"]   # daily cleanup at 03:00 UTC
 PBKDF2_ITERATIONS = "100000"   # measure with /admin/hash-timing, then raise if CPU allows
 MIN_AGE = "13"
 MAIL_FROM_NAME = "Curie ID"
-MAIL_FROM_EMAIL = "noreply@your-verified-domain.example"  # must be a sender verified in Brevo
-ALLOWED_ORIGIN = "https://PASTE_YOUR_PAGES_ORIGIN_HERE"   # e.g. https://id.yourdomain.com
+MAIL_FROM_EMAIL = "curieid.app@gmail.com"  # must be a sender verified in Brevo
+ALLOWED_ORIGIN = "https://curie-id.pages.dev"   # e.g. https://id.yourdomain.com
