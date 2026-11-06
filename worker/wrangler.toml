@@ -5,7 +5,7 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "curie-id"
-database_id = "PASTE_YOUR_D1_DATABASE_ID_HERE"
+database_id = "83fb8a9d-370a-4571-a20a-e1d6950e1b87"
 migrations_dir = "migrations"
 
 [triggers]
