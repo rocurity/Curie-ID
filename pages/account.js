@@ -15,6 +15,9 @@
     sessions_revoked_all: "Signed out everywhere",
     device_removed: "Device removed",
     backup_codes_regenerated: "New backup codes made",
+    app_approved: "Approved an app",
+    app_signed_in: "Signed in to an app",
+    app_disconnected: "App disconnected",
   };
 
   document.getElementById("signout").addEventListener("click", async () => {
@@ -26,18 +29,18 @@
   async function load() {
     if (!C.token()) return (location.href = "signin.html");
     try {
-      const [me, sess, devs, sec, act] = await Promise.all([
+      const [me, sess, devs, sec, act, apps] = await Promise.all([
         C.api("/me"), C.api("/me/sessions"), C.api("/me/devices"),
-        C.api("/me/security"), C.api("/me/activity"),
+        C.api("/me/security"), C.api("/me/activity"), C.api("/me/connected-apps"),
       ]);
-      render(me, sess.sessions, devs.devices, sec.backupCodesLeft, act.events);
+      render(me, sess.sessions, devs.devices, sec.backupCodesLeft, act.events, apps.apps);
     } catch (err) {
       if (err.status === 401) { C.clearToken(); return (location.href = "signin.html"); }
       app.innerHTML = `<section><p class="status bad">${C.esc(err.message)}</p></section>`;
     }
   }
 
-  function render(me, sessions, devices, backupLeft, events) {
+  function render(me, sessions, devices, backupLeft, events, apps) {
     const here = C.deviceId();
     app.innerHTML = `
       <section>
@@ -73,6 +76,16 @@
           <button>Make new codes</button><p class="status"></p>
         </form>
         <div id="codes"></div>
+      </section>
+
+      <section>
+        <h2>Connected apps</h2>
+        <p class="muted">Apps you've let sign you in with Curie ID. Disconnecting an app signs you out of it.</p>
+        <ul>${apps.map((a) => `
+          <li><span><strong>${C.esc(a.name)}</strong>
+            <br><span class="muted">Connected ${C.fmt(a.grantedAt)}</span></span>
+            <button class="ghost" data-app="${C.esc(a.clientId)}">Disconnect</button></li>`).join("")
+          || "<li class='muted'>No connected apps.</li>"}</ul>
       </section>
 
       <section>
@@ -149,12 +162,16 @@
     app.onclick = async (e) => {
       const sessionBtn = e.target.closest("[data-session]");
       const deviceBtn = e.target.closest("[data-device]");
+      const appBtn = e.target.closest("[data-app]");
       try {
         if (sessionBtn) {
           await C.api(`/me/sessions/${encodeURIComponent(sessionBtn.dataset.session)}/revoke`, { method: "POST" });
         } else if (deviceBtn) {
           if (!confirm("Remove this device? Signing in from it again will need a code.")) return;
           await C.api(`/me/devices/${encodeURIComponent(deviceBtn.dataset.device)}/revoke`, { method: "POST" });
+        } else if (appBtn) {
+          if (!confirm("Disconnect this app? It will be signed out and will need your approval to sign in again.")) return;
+          await C.api(`/me/connected-apps/${encodeURIComponent(appBtn.dataset.app)}`, { method: "DELETE" });
         } else {
           return;
         }
