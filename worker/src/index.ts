@@ -16,6 +16,7 @@ export interface Env {
   MIN_AGE: string;
   ALLOWED_ORIGIN: string;
   ADMIN_TOKEN?: string;
+  ADMIN_PASSWORD?: string;
   APPS_JSON?: string;
 }
 
@@ -1103,13 +1104,50 @@ async function signOutEverywhere(env: Env, req: Request): Promise<Response> {
 // Requires the ADMIN_TOKEN secret, sent in the X-Admin-Token header.
 // ---------------------------------------------------------------------------
 
+/** Signs in the admin with the ADMIN_PASSWORD secret. Returns a token that lasts two hours. */
+async function adminLogin(env: Env, req: Request, ip: string): Promise<Response> {
+  if (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 12) {
+    throw new HttpError(503, "Set an admin password of at least 12 characters in Cloudflare.");
+  }
+  if (
+    (await rateLimited(env, `admin-login-ip:${ip}`, 5, 15 * MINUTE)) ||
+    (await rateLimited(env, "admin-login-all", 50, HOUR))
+  ) {
+    throw new HttpError(429, "Too many sign-in attempts. Try again later.");
+  }
+  const b = await readJson(req);
+  if (typeof b.password !== "string" || !constantTimeEqualStr(b.password, env.ADMIN_PASSWORD)) {
+    throw new HttpError(401, "That password isn't right.");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const token = await signToken(env, {
+    iss: "curie-id",
+    aud: "curie-apps",
+    sub: "admin",
+    sid: "admin",
+    scope: "admin",
+    iat: now,
+    exp: now + 2 * 60 * 60,
+  });
+  return json({ token });
+}
+
+/** Every other admin request needs the admin token from the login above. */
 async function requireAdmin(env: Env, req: Request, ip: string): Promise<void> {
-  if (!env.ADMIN_TOKEN) throw new HttpError(503, "Admin is not configured.");
-  if (await rateLimited(env, `admin-ip:${ip}`, 200, 15 * MINUTE)) {
+  if (await rateLimited(env, `admin-ip:${ip}`, 300, 15 * MINUTE)) {
     throw new HttpError(429, "Too many requests. Try again later.");
   }
-  const provided = req.headers.get("x-admin-token") ?? "";
-  if (!constantTimeEqualStr(provided, env.ADMIN_TOKEN)) throw new HttpError(401, "That admin key isn't right.");
+  const header = req.headers.get("authorization") || "";
+  if (!header.startsWith("Bearer ")) throw new HttpError(401, "Sign in to the admin page again.");
+  let claims: Record<string, any>;
+  try {
+    claims = await readToken(env, header.slice(7), true);
+  } catch {
+    throw new HttpError(401, "Sign in to the admin page again.");
+  }
+  if (claims.sub !== "admin" || claims.scope !== "admin") {
+    throw new HttpError(401, "Sign in to the admin page again.");
+  }
 }
 
 function userRow(u: Record<string, any>) {
@@ -1124,6 +1162,7 @@ function userRow(u: Record<string, any>) {
 }
 
 async function adminRoute(env: Env, req: Request, path: string, ip: string): Promise<Response> {
+  if (req.method === "POST" && path === "/admin/login") return adminLogin(env, req, ip);
   await requireAdmin(env, req, ip);
   const M = req.method;
   const url = new URL(req.url);

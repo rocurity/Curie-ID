@@ -36,7 +36,7 @@
   async function api(path, opts = {}) {
     const r = await fetch(API + path, {
       method: opts.method || (opts.body ? "POST" : "GET"),
-      headers: { "Content-Type": "application/json", "X-Admin-Token": key() || "" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + (key() || "") },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await r.json().catch(() => ({}));
@@ -57,20 +57,26 @@
       <section class="card">
         <h2>Admin sign-in</h2>
         <form id="login" class="form">
-          <label>Admin key<input name="key" type="password" required autocomplete="off"></label>
+          <label>Admin password<input name="password" type="password" required autocomplete="current-password"></label>
           <div class="row"><button>Enter</button></div>
           <p class="status bad">${esc(msg || "")}</p>
         </form>
       </section>`;
     document.getElementById("login").addEventListener("submit", async (e) => {
       e.preventDefault();
-      sessionStorage.setItem(KEY, new FormData(e.target).get("key"));
+      const password = new FormData(e.target).get("password");
       try {
-        await api("/admin/activity");
+        const r = await fetch(API + "/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw Object.assign(new Error(data.error || "Sign-in failed."), { status: r.status });
+        sessionStorage.setItem(KEY, data.token);
         home();
       } catch (err) {
-        sessionStorage.removeItem(KEY);
-        showLogin(err.status === 401 ? "That key isn't right." : err.message);
+        showLogin(err.message);
       }
     });
   }
