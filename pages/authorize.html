@@ -4,24 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in with Curie ID</title>
-<style>
-  body{font:16px/1.5 system-ui,sans-serif;max-width:30rem;margin:2rem auto;padding:0 1rem;color:#1c1a17;background:#f4efe6}
-  h1{font-family:Georgia,serif;font-weight:500;font-size:1.6rem}
-  .card{background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.5rem;margin-bottom:1rem}
-  form{display:grid;gap:.9rem;margin-top:.8rem}
-  label{display:grid;gap:.3rem;font-weight:500}
-  input{font:inherit;padding:.55rem .6rem;border:1px solid #cfc5b3;border-radius:4px;background:#fff}
-  button{font:inherit;font-weight:600;padding:.6rem 1rem;border:0;border-radius:4px;background:#2d5b4e;color:#fff;cursor:pointer}
-  button.ghost{background:transparent;color:#1c1a17;border:1px solid #cfc5b3}
-  button:disabled{opacity:.6}
-  .actions{display:flex;gap:.6rem;flex-wrap:wrap}
-  .muted{color:#6b645a}
-  .status{min-height:1.2em;font-size:.95rem}.status.bad{color:#9b2c1f}
-  [hidden]{display:none!important}
-</style>
+<link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<main id="app"></main>
+<div class="auth-wrap">
+  <div id="app" class="auth-app"></div>
+</div>
 <script src="config.js"></script>
 <script src="curie.js"></script>
 <script src="authorize.js"></script>

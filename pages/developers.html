@@ -3,44 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Curie ID developers</title>
-<style>
-  body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1c1a17;background:#f4efe6}
-  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-  h1{font-family:Georgia,serif;font-weight:500;margin:0}
-  h2{font-family:Georgia,serif;font-weight:500;font-size:1.25rem;margin:.2rem 0 .6rem}
-  .card{background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.2rem;margin-bottom:1rem}
-  .secret{border-color:#2d5b4e}
-  .app{border-top:1px solid #e4dccd;padding:1rem 0}
-  .app:first-of-type{border-top:0}
-  form{display:grid;gap:.7rem;margin-top:.6rem}
-  label{display:grid;gap:.25rem;font-weight:500}
-  input,textarea{font:inherit;padding:.5rem .6rem;border:1px solid #cfc5b3;border-radius:4px;background:#fff}
-  fieldset{border:0;padding:0;margin:0;display:grid;gap:.4rem}
-  legend{font-weight:500;margin-bottom:.2rem}
-  fieldset label{font-weight:400}
-  button{font:inherit;font-weight:600;padding:.55rem 1rem;border:0;border-radius:4px;background:#2d5b4e;color:#fff;cursor:pointer}
-  button.ghost{background:transparent;color:#1c1a17;border:1px solid #cfc5b3}
-  button.danger{background:#9b2c1f}
-  button:disabled{opacity:.6}
-  .actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
-  .muted{color:#6b645a}
-  .tag{font-size:.8rem;color:#6b645a;border:1px solid #cfc5b3;padding:0 .45rem;border-radius:99px;margin-left:.4rem}
-  code{font-size:.9em;background:#fff;border:1px solid #d9d1c3;padding:0 .3em;border-radius:3px;word-break:break-all}
-  pre{background:#fff;border:1px solid #d9d1c3;padding:1rem;overflow:auto;border-radius:4px;font-size:.85rem;line-height:1.5}
-  .status{min-height:1.2em;font-size:.95rem}.status.bad{color:#9b2c1f}.status.ok{color:#2d5b4e}
-  [hidden]{display:none!important}
-</style>
+<title>Developers · Curie ID</title>
+<link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<header>
-  <h1>Curie ID developers</h1>
-  <div class="actions">
-    <a href="account.html">Your account</a>
-    <button class="ghost" id="signout">Sign out</button>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="developers.html">Curie ID</a>
+    <nav class="nav" aria-label="Main">
+      <a href="account.html">Account</a>
+      <a href="developers.html" aria-current="page">Developers</a>
+    </nav>
+    <div class="topbar-actions"><button class="ghost" id="signout">Sign out</button></div>
   </div>
 </header>
-<main id="app"></main>
+<main class="page">
+  <div class="page-head">
+    <h1>Developers</h1>
+    <p>Register apps that let people sign in with their Curie ID.</p>
+  </div>
+  <div id="app" class="stack"></div>
+</main>
 <script src="config.js"></script>
 <script src="curie.js"></script>
 <script src="developers.js"></script>

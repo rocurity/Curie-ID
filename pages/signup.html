@@ -4,57 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Create your Curie ID</title>
-<style>
-  body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;color:#1c1a17;background:#f4efe6}
-  h1{font-family:Georgia,serif;font-weight:500}
-  form{display:grid;gap:.9rem;background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.5rem}
-  label{display:grid;gap:.3rem;font-weight:500}
-  input,select{font:inherit;padding:.55rem .6rem;border:1px solid #cfc5b3;border-radius:4px;background:#fff}
-  button{font:inherit;font-weight:600;padding:.6rem;border:0;border-radius:4px;background:#2d5b4e;color:#fff;cursor:pointer}
-  button:disabled{opacity:.6}
-  .hint{font-size:.87rem;color:#6b645a;font-weight:400}
-  .status{min-height:1.2em;font-size:.95rem}
-  .status.bad{color:#9b2c1f}.status.ok{color:#2d5b4e}
-  [hidden]{display:none!important}
-  #done{background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.5rem;margin-top:1rem}
-  pre{background:#fff;border:1px solid #cfc5b3;border-radius:6px;padding:1rem;font-size:1.1rem;line-height:1.8}
-</style>
+<link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<h1>Create your Curie ID</h1>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <a class="brand" href="signin.html">Curie ID</a>
 
-<form id="signup">
-  <label>Name<input name="displayName" maxlength="60" required autocomplete="name"></label>
-  <label>Username<input name="username" pattern="[a-z0-9_]{3,20}" required autocomplete="username">
-    <span class="hint">3–20 characters: lowercase letters, numbers and underscores.</span></label>
-  <label>Email<input name="email" type="email" required autocomplete="email">
-    <span class="hint">We send a confirmation code here.</span></label>
-  <label>Date of birth<input name="dateOfBirth" type="date" required>
-    <span class="hint">Used only to check your age. Never shown to other people or apps.</span></label>
-  <label>Gender <span class="hint">(optional)</span>
-    <select name="gender">
-      <option value="">Prefer not to say</option>
-      <option value="female">Female</option>
-      <option value="male">Male</option>
-      <option value="other">Other</option>
-    </select></label>
-  <label>Password<input name="password" type="password" minlength="8" required autocomplete="new-password">
-    <span class="hint">At least 8 characters, with letters and numbers.</span></label>
-  <label>Confirm password<input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label>
-  <button>Create account</button>
-  <p class="status" role="status"></p>
-</form>
+    <form id="signup">
+      <h1>Create your Curie ID</h1>
+      <p class="muted">One account for every app that uses Curie ID.</p>
+      <label>Name
+        <input name="displayName" maxlength="60" required autocomplete="name"></label>
+      <label>Username
+        <input name="username" pattern="[a-z0-9_]{3,20}" required autocomplete="username">
+        <span class="hint">3 to 20 characters: lowercase letters, numbers and underscores.</span></label>
+      <label>Email
+        <input name="email" type="email" required autocomplete="email">
+        <span class="hint">We send a confirmation code here.</span></label>
+      <label>Date of birth
+        <input name="dateOfBirth" type="date" required>
+        <span class="hint">Used only to check your age. Never shown to other people or apps.</span></label>
+      <label>Gender
+        <select name="gender">
+          <option value="">Prefer not to say</option>
+          <option value="female">Female</option>
+          <option value="male">Male</option>
+          <option value="other">Other</option>
+        </select>
+        <span class="hint">Optional. Never shared with apps.</span></label>
+      <label>Password
+        <input name="password" type="password" minlength="8" required autocomplete="new-password">
+        <span class="hint">At least 8 characters, with letters and numbers.</span></label>
+      <label>Confirm password
+        <input name="confirm" type="password" minlength="8" required autocomplete="new-password"></label>
+      <button class="wide">Create account</button>
+      <p class="status" role="status"></p>
+    </form>
 
-<form id="verify" hidden>
-  <p id="sent"></p>
-  <label>6-digit code<input name="code" inputmode="numeric" maxlength="6" required></label>
-  <button>Confirm email</button>
-  <button type="button" id="resend">Send a new code</button>
-  <p class="status" role="status"></p>
-</form>
+    <form id="verify" hidden>
+      <h1>Check your email</h1>
+      <p id="sent" class="muted"></p>
+      <label>6-digit code
+        <input name="code" inputmode="numeric" maxlength="6" required></label>
+      <button class="wide">Confirm email</button>
+      <button type="button" class="ghost wide" id="resend">Send a new code</button>
+      <p class="status" role="status"></p>
+    </form>
 
-<div id="done" hidden></div>
-
+    <div id="done" hidden></div>
+  </div>
+</div>
 <script src="config.js"></script>
 <script src="curie.js"></script>
 <script src="signup.js"></script>
