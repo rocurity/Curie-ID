@@ -294,7 +294,7 @@ function emailHtml(o: { heading: string; body: string; curieId?: string; code?: 
     `<h1 style="font-size:34px;line-height:1.2;margin:14px 0 16px;font-weight:bold">${escHtml(o.heading)}</h1>` +
     `<p style="font-size:20px;line-height:1.5;margin:0;font-weight:bold">${escHtml(o.body)}</p>` +
     (o.curieId ? box("YOUR CURIE ID", o.curieId, 30, 3, "#1c1a17") : "") +
-    (o.code ? box("YOUR CODE", o.code, 56, 10, "#2d5b4e") : "") +
+    (o.code ? `<div style="margin:24px 0;padding:20px;background:#f4efe6;border:3px solid #2d5b4e;border-radius:12px;text-align:center;font-size:22px;font-weight:bold;white-space:nowrap">Your code: <span style="font-size:56px;letter-spacing:8px;color:#2d5b4e">${escHtml(o.code)}</span></div>` : "") +
     `<p style="font-size:18px;line-height:1.5;margin:24px 0 0"><strong>This code expires in 10 minutes.</strong> ${escHtml(o.footer)}</p>` +
     `</div></body></html>`
   );
@@ -474,8 +474,8 @@ async function register(env: Env, req: Request, ip: string): Promise<Response> {
       to: email,
       subject: "Confirm your Curie ID",
       heading: `Welcome to Curie ID, ${displayName}!`,
-      intro: "Use this code to confirm your email and finish creating your account. Your Curie ID is shown below. Keep it safe, because you use it to sign in.",
-      showId: true,
+      intro: "Use this code to confirm your email and finish creating your account.",
+      showId: false,
       footer: "If you didn't create a Curie ID, you can ignore this email.",
     });
   } catch (e) {
@@ -502,7 +502,7 @@ async function resendEmail(env: Env, req: Request, ip: string): Promise<Response
       subject: "Confirm your Curie ID",
       heading: "Confirm your email",
       intro: "Use this code to finish creating your Curie ID.",
-      showId: true,
+      showId: false,
       footer: "If you didn't ask for this, ignore this email.",
     });
   }
@@ -578,7 +578,7 @@ async function login(env: Env, req: Request, ip: string): Promise<Response> {
     subject: "New sign-in to your Curie ID",
     heading: "New sign-in to your account",
     intro: "Someone is signing in to your Curie ID from a new device. If this was you, enter the code below.",
-    showId: true,
+    showId: false,
     footer: "If this wasn't you, change your password right away.",
   });
   return json({ status: "verify_device", challengeId, maskedEmail });
@@ -614,7 +614,7 @@ async function sendResetCode(env: Env, user: Record<string, any>): Promise<void>
       subject: "Reset your Curie ID password",
       heading: "Reset your password",
       intro: "Use this code to reset your Curie ID password.",
-      showId: true,
+      showId: false,
       footer: "If you didn't ask for this, ignore this email.",
     });
   } catch (e) {
