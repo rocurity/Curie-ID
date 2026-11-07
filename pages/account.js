@@ -2,6 +2,21 @@
   const C = window.Curie;
   const app = document.getElementById("app");
 
+  const LABELS = {
+    account_created: "Account created",
+    login_success: "Signed in",
+    login_failed: "Failed sign-in attempt",
+    device_added: "New device confirmed",
+    logout: "Signed out",
+    password_changed: "Password changed",
+    password_reset: "Password reset",
+    session_revoked: "Session signed out",
+    sessions_revoked_others: "Other sessions signed out",
+    sessions_revoked_all: "Signed out everywhere",
+    device_removed: "Device removed",
+    backup_codes_regenerated: "New backup codes made",
+  };
+
   document.getElementById("signout").addEventListener("click", async () => {
     try { await C.api("/auth/logout", { method: "POST" }); } catch { /* already ended */ }
     C.clearToken();
@@ -11,15 +26,18 @@
   async function load() {
     if (!C.token()) return (location.href = "signin.html");
     try {
-      const [me, sess, devs] = await Promise.all([C.api("/me"), C.api("/me/sessions"), C.api("/me/devices")]);
-      render(me, sess.sessions, devs.devices);
+      const [me, sess, devs, sec, act] = await Promise.all([
+        C.api("/me"), C.api("/me/sessions"), C.api("/me/devices"),
+        C.api("/me/security"), C.api("/me/activity"),
+      ]);
+      render(me, sess.sessions, devs.devices, sec.backupCodesLeft, act.events);
     } catch (err) {
       if (err.status === 401) { C.clearToken(); return (location.href = "signin.html"); }
       app.innerHTML = `<section><p class="status bad">${C.esc(err.message)}</p></section>`;
     }
   }
 
-  function render(me, sessions, devices) {
+  function render(me, sessions, devices, backupLeft, events) {
     const here = C.deviceId();
     app.innerHTML = `
       <section>
@@ -48,6 +66,16 @@
       </section>
 
       <section>
+        <h2>Backup codes</h2>
+        <p class="muted">You have <strong>${backupLeft}</strong> unused. Each one resets your password once, even without email. Making new codes replaces the old ones.</p>
+        <form id="backup">
+          <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
+          <button>Make new codes</button><p class="status"></p>
+        </form>
+        <div id="codes"></div>
+      </section>
+
+      <section>
         <h2>Where you're signed in</h2>
         <ul>${sessions.map((s) => `
           <li><span>${s.isCurrent ? "<strong>This session</strong>" : "Another session"}
@@ -55,7 +83,10 @@
             <span class="muted">Last active ${C.fmt(s.lastUsedAt)}</span></span>
             ${s.isCurrent ? "" : `<button class="ghost" data-session="${C.esc(s.sid)}">Sign out</button>`}</li>`).join("")
           || "<li class='muted'>No other sessions.</li>"}</ul>
-        <button class="ghost" id="signout-others">Sign out other sessions</button>
+        <div class="actions">
+          <button class="ghost" id="signout-others">Sign out other sessions</button>
+          <button class="danger" id="signout-all">Sign out everywhere</button>
+        </div>
       </section>
 
       <section>
@@ -67,6 +98,14 @@
             ${d.deviceId === here
               ? '<span class="muted">Use Sign out above to end this browser\'s session.</span>'
               : `<button class="ghost" data-device="${C.esc(d.deviceId)}">Remove</button>`}</li>`).join("")}</ul>
+      </section>
+
+      <section>
+        <h2>Recent activity</h2>
+        <ul>${events.map((ev) => `
+          <li><span>${C.esc(LABELS[ev.type] || String(ev.type).replace(/_/g, " "))}</span>
+            <span class="muted">${C.fmt(ev.createdAt)}</span></li>`).join("")
+          || "<li class='muted'>Nothing yet.</li>"}</ul>
       </section>`;
 
     document.getElementById("profile").addEventListener("submit", (e) => C.submit(e, async (fd) => {
@@ -85,9 +124,26 @@
       return `Password changed. ${r.sessionsEnded} other session(s) signed out.`;
     }));
 
+    document.getElementById("backup").addEventListener("submit", (e) => C.submit(e, async (fd) => {
+      const r = await C.api("/account/backup-codes", { body: { password: fd.get("password") } });
+      e.target.reset();
+      document.getElementById("codes").innerHTML = `
+        <h3>Your new backup codes</h3>
+        <p class="muted"><strong>Save these now.</strong> They won't be shown again.</p>
+        <pre>${r.codes.map((c) => C.esc(c)).join("\n")}</pre>`;
+      return "New codes made.";
+    }));
+
     document.getElementById("signout-others").addEventListener("click", async () => {
       try { await C.api("/me/sessions/revoke-others", { method: "POST" }); load(); }
       catch (err) { alert(err.message); }
+    });
+
+    document.getElementById("signout-all").addEventListener("click", async () => {
+      if (!confirm("Sign out everywhere? This also signs out this browser.")) return;
+      try { await C.api("/me/sessions/revoke-all", { method: "POST" }); } catch { /* ended anyway */ }
+      C.clearToken();
+      location.href = "signin.html";
     });
 
     app.onclick = async (e) => {

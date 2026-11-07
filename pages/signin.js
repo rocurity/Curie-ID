@@ -62,8 +62,11 @@
   }));
 
   document.getElementById("reset").addEventListener("submit", (e) => C.submit(e, async (fd) => {
+    const code = fd.get("code") || "";
+    const backupCode = fd.get("backupCode") || "";
+    if (!code && !backupCode) throw new Error("Enter the code from your email, or a backup code.");
     await C.api("/auth/reset", {
-      body: { identifier: lastIdentifier, code: fd.get("code"), newPassword: fd.get("newPassword") },
+      body: { identifier: lastIdentifier, code, backupCode, newPassword: fd.get("newPassword") },
       noRefresh: true,
     });
     show("signin");

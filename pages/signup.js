@@ -29,9 +29,23 @@
       noRefresh: true,
     });
     C.setToken(r.accessToken);
-    location.href = "account.html";
+    showDone(r);
     return "";
   }));
+
+  // Shown once: the backup codes can't be retrieved later.
+  function showDone(r) {
+    document.getElementById("verify").hidden = true;
+    const box = document.getElementById("done");
+    box.hidden = false;
+    box.innerHTML = `
+      <h2>Your account is ready</h2>
+      <p>Your Curie ID: <strong>${C.esc(r.curieId)}</strong></p>
+      <p><strong>Save these backup codes now.</strong> Each one resets your password once, even if you can't get email. They won't be shown again.</p>
+      <pre>${r.backupCodes.map((c) => C.esc(c)).join("\n")}</pre>
+      <button id="continue">I've saved them. Go to my account</button>`;
+    document.getElementById("continue").addEventListener("click", () => { location.href = "account.html"; });
+  }
 
   document.getElementById("resend").addEventListener("click", async () => {
     const status = document.querySelector("#verify .status");

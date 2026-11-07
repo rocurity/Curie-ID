@@ -258,7 +258,7 @@ async function logEvent(env: Env, curieId: string, type: string): Promise<void> 
     .run();
 }
 
-async function sendEmail(env: Env, to: string, subject: string, text: string): Promise<void> {
+async function sendEmail(env: Env, to: string, subject: string, text: string, html: string): Promise<void> {
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": env.BREVO_API_KEY, "content-type": "application/json", accept: "application/json" },
@@ -267,6 +267,7 @@ async function sendEmail(env: Env, to: string, subject: string, text: string): P
       to: [{ email: to }],
       subject,
       textContent: text,
+      htmlContent: html,
     }),
   });
   if (!res.ok) {
@@ -275,10 +276,34 @@ async function sendEmail(env: Env, to: string, subject: string, text: string): P
   }
 }
 
+function escHtml(s: string): string {
+  const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return s.replace(/[&<>"']/g, (c) => map[c]);
+}
+
+/** Large, high-contrast email: the Curie ID and the code are impossible to miss. */
+function emailHtml(o: { heading: string; body: string; curieId?: string; code?: string; footer: string }): string {
+  const box = (label: string, value: string, size: number, spacing: number, colour: string) =>
+    `<div style="margin:24px 0;padding:24px;background:#f4efe6;border:3px solid #2d5b4e;border-radius:12px;text-align:center">` +
+    `<div style="font-size:16px;font-weight:bold;color:#6b645a;letter-spacing:1px">${label}</div>` +
+    `<div style="font-size:${size}px;font-weight:bold;letter-spacing:${spacing}px;color:${colour};margin-top:10px">${escHtml(value)}</div></div>`;
+  return (
+    `<!doctype html><html><body style="margin:0;padding:24px;background:#f4efe6;font-family:Arial,Helvetica,sans-serif;color:#1c1a17">` +
+    `<div style="max-width:580px;margin:0 auto;background:#ffffff;border-radius:14px;padding:32px">` +
+    `<div style="font-size:18px;font-weight:bold;letter-spacing:3px;color:#2d5b4e">CURIE ID</div>` +
+    `<h1 style="font-size:34px;line-height:1.2;margin:14px 0 16px;font-weight:bold">${escHtml(o.heading)}</h1>` +
+    `<p style="font-size:20px;line-height:1.5;margin:0;font-weight:bold">${escHtml(o.body)}</p>` +
+    (o.curieId ? box("YOUR CURIE ID", o.curieId, 30, 3, "#1c1a17") : "") +
+    (o.code ? box("YOUR CODE", o.code, 56, 10, "#2d5b4e") : "") +
+    `<p style="font-size:18px;line-height:1.5;margin:24px 0 0"><strong>This code expires in 10 minutes.</strong> ${escHtml(o.footer)}</p>` +
+    `</div></body></html>`
+  );
+}
+
 /** Creates a 6-digit code, stores only its HMAC, and emails it. */
 async function issueCode(
   env: Env,
-  o: { id: string; curieId: string; purpose: string; deviceId: string | null; to: string; subject: string; intro: string },
+  o: { id: string; curieId: string; purpose: string; deviceId: string | null; to: string; subject: string; heading: string; intro: string; footer: string; showId: boolean },
 ): Promise<void> {
   const existing = await env.DB.prepare("SELECT created_at FROM codes WHERE id = ?")
     .bind(o.id).first<{ created_at: number }>();
@@ -294,12 +319,15 @@ async function issueCode(
       "ON CONFLICT(id) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, " +
       "created_at = excluded.created_at, expires_at = excluded.expires_at",
   ).bind(o.id, o.curieId, o.purpose, o.deviceId, codeHash, now, now + CODE_TTL_MS).run();
-  await sendEmail(
-    env,
-    o.to,
-    o.subject,
-    `${o.intro}\n\nYour code: ${code}\n\nIt expires in 10 minutes. If you didn't ask for this, ignore this email.`,
-  );
+  const text = `${o.heading}\n\n${o.intro}\n\n${o.showId ? `Your Curie ID: ${o.curieId}\n` : ""}Your code: ${code}\n\nIt expires in 10 minutes. ${o.footer}`;
+  const html = emailHtml({
+    heading: o.heading,
+    body: o.intro,
+    curieId: o.showId ? o.curieId : undefined,
+    code,
+    footer: o.footer,
+  });
+  await sendEmail(env, o.to, o.subject, text, html);
 }
 
 /**
@@ -445,7 +473,10 @@ async function register(env: Env, req: Request, ip: string): Promise<Response> {
       deviceId: null,
       to: email,
       subject: "Confirm your Curie ID",
-      intro: `Welcome, ${displayName}. Use this code to finish creating your Curie ID.`,
+      heading: `Welcome to Curie ID, ${displayName}!`,
+      intro: "Use this code to confirm your email and finish creating your account. Your Curie ID is shown below. Keep it safe, because you use it to sign in.",
+      showId: true,
+      footer: "If you didn't create a Curie ID, you can ignore this email.",
     });
   } catch (e) {
     await env.DB.prepare("DELETE FROM users WHERE curie_id = ?").bind(curieId).run();
@@ -469,7 +500,10 @@ async function resendEmail(env: Env, req: Request, ip: string): Promise<Response
       deviceId: null,
       to: user.email,
       subject: "Confirm your Curie ID",
+      heading: "Confirm your email",
       intro: "Use this code to finish creating your Curie ID.",
+      showId: true,
+      footer: "If you didn't ask for this, ignore this email.",
     });
   }
   return json({ ok: true });
@@ -487,7 +521,8 @@ async function verifyEmail(env: Env, req: Request): Promise<Response> {
   await env.DB.prepare("UPDATE users SET status = 'active' WHERE curie_id = ?").bind(curieId).run();
   await trustDevice(env, curieId, deviceId);
   await logEvent(env, curieId, "account_created");
-  return json(await createSession(env, curieId, deviceId), 201);
+  const backupCodes = await createBackupCodes(env, curieId);
+  return json({ ...(await createSession(env, curieId, deviceId)), backupCodes }, 201);
 }
 
 async function login(env: Env, req: Request, ip: string): Promise<Response> {
@@ -541,7 +576,10 @@ async function login(env: Env, req: Request, ip: string): Promise<Response> {
     deviceId,
     to: user.email,
     subject: "New sign-in to your Curie ID",
-    intro: "Someone is signing in to your Curie ID from a new device. If this was you, enter this code. If it wasn't, change your password right away.",
+    heading: "New sign-in to your account",
+    intro: "Someone is signing in to your Curie ID from a new device. If this was you, enter the code below.",
+    showId: true,
+    footer: "If this wasn't you, change your password right away.",
   });
   return json({ status: "verify_device", challengeId, maskedEmail });
 }
@@ -574,7 +612,10 @@ async function sendResetCode(env: Env, user: Record<string, any>): Promise<void>
       deviceId: null,
       to: user.email,
       subject: "Reset your Curie ID password",
+      heading: "Reset your password",
       intro: "Use this code to reset your Curie ID password.",
+      showId: true,
+      footer: "If you didn't ask for this, ignore this email.",
     });
   } catch (e) {
     console.error("forgot: could not send code", e);
@@ -598,7 +639,8 @@ async function resetPassword(env: Env, req: Request): Promise<Response> {
   const user = await findAccount(env, b.identifier);
   if (!user || user.status !== "active") throw new HttpError(400, WRONG_CODE);
 
-  await redeemCode(env, `${user.curie_id}:reset`, b.code);
+  if (b.backupCode) await useBackupCode(env, user.curie_id, b.backupCode);
+  else await redeemCode(env, `${user.curie_id}:reset`, b.code);
   const hash = await hashPassword(env, b.newPassword);
   await env.DB.prepare("UPDATE users SET password_hash = ? WHERE curie_id = ?").bind(hash, user.curie_id).run();
   await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(user.curie_id).run();
@@ -809,6 +851,9 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   const deviceMatch = path.match(/^\/me\/devices\/([^/]+)\/revoke$/);
   if (m === "POST" && deviceMatch) return revokeDevice(env, req, safeDecode(deviceMatch[1]));
   if (m === "GET" && path === "/me/activity") return activity(env, req);
+  if (m === "GET" && path === "/me/security") return securityInfo(env, req);
+  if (m === "POST" && path === "/me/sessions/revoke-all") return signOutEverywhere(env, req);
+  if (m === "POST" && path === "/account/backup-codes") return newBackupCodes(env, req);
 
   const userMatch = path.match(/^\/user\/(\d{12}c)$/i);
   if (m === "GET" && userMatch) return publicUser(env, userMatch[1].toLowerCase());
@@ -816,6 +861,67 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "GET" && path === "/admin/hash-timing") return hashTiming(env, req);
 
   return json({ error: "Not found" }, 404);
+}
+
+const ALNUM = "abcdefghjkmnpqrstuvwxyz23456789";
+function randomCode(n: number): string {
+  return Array.from(randomBytes(n), (b) => ALNUM[b % ALNUM.length]).join("");
+}
+
+async function hashBackupCode(env: Env, code: string): Promise<string> {
+  return hmacHex(env.CODE_SECRET, "backup:" + code.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
+
+/** Makes 8 one-time backup codes, stores only their hashes, and returns the plain codes once. */
+async function createBackupCodes(env: Env, curieId: string): Promise<string[]> {
+  const codes = Array.from({ length: 8 }, () => `${randomCode(4)}-${randomCode(4)}`);
+  const hashes = await Promise.all(codes.map((c) => hashBackupCode(env, c)));
+  await env.DB.prepare("UPDATE users SET backup_codes = ? WHERE curie_id = ?")
+    .bind(JSON.stringify(hashes), curieId).run();
+  return codes;
+}
+
+/** Uses one backup code. The update only succeeds if the stored list is unchanged, so a code works once. */
+async function useBackupCode(env: Env, curieId: string, code: unknown): Promise<void> {
+  const row = await env.DB.prepare("SELECT backup_codes FROM users WHERE curie_id = ?")
+    .bind(curieId).first<{ backup_codes: string | null }>();
+  const list: string[] = row?.backup_codes ? JSON.parse(row.backup_codes) : [];
+  const h = await hashBackupCode(env, String(code ?? ""));
+  if (!list.includes(h)) throw new HttpError(400, WRONG_CODE);
+  const r = await env.DB.prepare("UPDATE users SET backup_codes = ? WHERE curie_id = ? AND backup_codes IS ?")
+    .bind(JSON.stringify(list.filter((x) => x !== h)), curieId, row?.backup_codes ?? null).run();
+  if (!r.meta.changes) throw new HttpError(400, WRONG_CODE);
+}
+
+async function securityInfo(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const row = await env.DB.prepare("SELECT backup_codes FROM users WHERE curie_id = ?")
+    .bind(curieId).first<{ backup_codes: string | null }>();
+  const left = row?.backup_codes ? (JSON.parse(row.backup_codes) as string[]).length : 0;
+  return json({ backupCodesLeft: left });
+}
+
+/** Makes new backup codes, which replace the old ones. Requires the account password. */
+async function newBackupCodes(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const b = await readJson(req);
+  if (await rateLimited(env, `backup:${curieId}`, 5, HOUR)) throw new HttpError(429, "Too many attempts. Try again later.");
+  const u = await env.DB.prepare("SELECT password_hash FROM users WHERE curie_id = ?")
+    .bind(curieId).first<{ password_hash: string }>();
+  if (!u || typeof b.password !== "string" || !(await verifyPassword(b.password, u.password_hash))) {
+    throw new HttpError(401, "Password is incorrect.");
+  }
+  const codes = await createBackupCodes(env, curieId);
+  await logEvent(env, curieId, "backup_codes_regenerated");
+  return json({ codes });
+}
+
+/** Ends every session, including the one making the request. */
+async function signOutEverywhere(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const r = await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(curieId).run();
+  await logEvent(env, curieId, "sessions_revoked_all");
+  return json({ ok: true, signedOut: r.meta.changes ?? 0 });
 }
 
 function withHeaders(env: Env, res: Response): Response {

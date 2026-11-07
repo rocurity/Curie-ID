@@ -16,6 +16,8 @@
   .status{min-height:1.2em;font-size:.95rem}
   .status.bad{color:#9b2c1f}.status.ok{color:#2d5b4e}
   [hidden]{display:none!important}
+  #done{background:#fbf8f2;border:1px solid #d9d1c3;border-radius:6px;padding:1.5rem;margin-top:1rem}
+  pre{background:#fff;border:1px solid #cfc5b3;border-radius:6px;padding:1rem;font-size:1.1rem;line-height:1.8}
 </style>
 </head>
 <body>
@@ -50,6 +52,8 @@
   <button type="button" id="resend">Send a new code</button>
   <p class="status" role="status"></p>
 </form>
+
+<div id="done" hidden></div>
 
 <script src="config.js"></script>
 <script src="curie.js"></script>

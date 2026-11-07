@@ -44,8 +44,9 @@
 </form>
 
 <form id="reset" hidden>
-  <p>Enter the code we emailed you and choose a new password.</p>
-  <label>6-digit code<input name="code" inputmode="numeric" maxlength="6" required></label>
+  <p>Enter the 6-digit code we emailed you, or one of your backup codes.</p>
+  <label>6-digit code<input name="code" inputmode="numeric" maxlength="6"></label>
+  <label>Or a backup code<input name="backupCode" autocomplete="off"></label>
   <label>New password<input name="newPassword" type="password" minlength="8" required autocomplete="new-password"></label>
   <button>Set new password</button>
   <p class="status" role="status"></p>
