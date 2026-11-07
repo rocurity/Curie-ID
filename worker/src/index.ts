@@ -288,13 +288,13 @@ function emailHtml(o: { heading: string; body: string; curieId?: string; code?: 
     `<div style="font-size:16px;font-weight:bold;color:#6b645a;letter-spacing:1px">${label}</div>` +
     `<div style="font-size:${size}px;font-weight:bold;letter-spacing:${spacing}px;color:${colour};margin-top:10px">${escHtml(value)}</div></div>`;
   return (
-    `<!doctype html><html><body style="margin:0;padding:24px;background:#f4efe6;font-family:Arial,Helvetica,sans-serif;color:#1c1a17">` +
-    `<div style="max-width:580px;margin:0 auto;background:#ffffff;border-radius:14px;padding:32px">` +
+    `<!doctype html><html><body style="margin:0;padding:12px;background:#f4efe6;font-family:Arial,Helvetica,sans-serif;color:#1c1a17">` +
+    `<div style="max-width:580px;margin:0 auto;background:#ffffff;border-radius:14px;padding:20px">` +
     `<div style="font-size:18px;font-weight:bold;letter-spacing:3px;color:#2d5b4e">CURIE ID</div>` +
     `<h1 style="font-size:34px;line-height:1.2;margin:14px 0 16px;font-weight:bold">${escHtml(o.heading)}</h1>` +
     `<p style="font-size:20px;line-height:1.5;margin:0;font-weight:bold">${escHtml(o.body)}</p>` +
     (o.curieId ? box("YOUR CURIE ID", o.curieId, 30, 3, "#1c1a17") : "") +
-    (o.code ? `<div style="margin:24px 0;padding:20px;background:#f4efe6;border:3px solid #2d5b4e;border-radius:12px;text-align:center;font-size:22px;font-weight:bold;white-space:nowrap">Your code: <span style="font-size:56px;letter-spacing:8px;color:#2d5b4e">${escHtml(o.code)}</span></div>` : "") +
+    (o.code ? `<p style="font-size:20px;font-weight:bold;margin:24px 0 0">Your code:</p><div style="margin:8px 0 24px;padding:18px 8px;background:#f4efe6;border:3px solid #2d5b4e;border-radius:12px;text-align:center"><span style="font-size:40px;font-weight:bold;letter-spacing:2px;color:#2d5b4e;white-space:nowrap">${escHtml(o.code)}</span></div>` : "") +
     `<p style="font-size:18px;line-height:1.5;margin:24px 0 0"><strong>This code expires in 10 minutes.</strong> ${escHtml(o.footer)}</p>` +
     `</div></body></html>`
   );
