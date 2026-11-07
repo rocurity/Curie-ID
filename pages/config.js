@@ -1,2 +1,2 @@
-// Set this to your deployed Worker URL, e.g. https://curie-id.yourname.workers.dev
+// Worker address. Do not change unless the Worker URL changes.
 window.CURIE_API = "https://curie-id.rocurity.workers.dev";

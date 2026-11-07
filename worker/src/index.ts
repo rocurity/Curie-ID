@@ -16,6 +16,7 @@ export interface Env {
   MIN_AGE: string;
   ALLOWED_ORIGIN: string;
   ADMIN_TOKEN?: string;
+  APPS_JSON?: string;
 }
 
 class HttpError extends Error {
@@ -382,20 +383,185 @@ async function createSession(env: Env, curieId: string, deviceId: string | null)
   return tokenFor(env, curieId, sid);
 }
 
-/** Checks the bearer token and its session row. Returns the signed-in user. */
-async function authenticate(env: Env, req: Request): Promise<{ curieId: string; sid: string }> {
+/** Checks the bearer token and its session row. App sessions only pass when allowApp is true. */
+async function authenticate(env: Env, req: Request, allowApp = false): Promise<{ curieId: string; sid: string; clientId: string | null }> {
   const header = req.headers.get("authorization") || "";
   if (!header.startsWith("Bearer ")) throw new HttpError(401, "Sign in again");
   const claims = await readToken(env, header.slice(7), true);
   const row = await env.DB.prepare(
-    "SELECT s.curie_id, s.revoked, s.expires_at, u.status FROM sessions s " +
+    "SELECT s.curie_id, s.revoked, s.expires_at, s.client_id, u.status FROM sessions s " +
       "JOIN users u ON u.curie_id = s.curie_id WHERE s.sid = ?",
   ).bind(claims.sid).first<Record<string, any>>();
   if (!row || row.revoked || row.expires_at < Date.now() || row.curie_id !== claims.sub) {
     throw new HttpError(401, "Sign in again");
   }
   if (row.status !== "active") throw new HttpError(403, "This account can't be used right now.");
-  return { curieId: claims.sub, sid: claims.sid };
+  if (row.client_id) {
+    if (!allowApp) throw new HttpError(403, "Apps can't change account settings.");
+    if (!findApp(env, row.client_id)) throw new HttpError(401, "This app is no longer connected.");
+  }
+  return { curieId: claims.sub, sid: claims.sid, clientId: row.client_id ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// App sign-in: OAuth 2.0 authorization code flow with PKCE
+// ---------------------------------------------------------------------------
+
+type AppDef = { clientId: string; name: string; redirectUris: string[] };
+
+function appRegistry(env: Env): AppDef[] {
+  try {
+    const list = JSON.parse(env.APPS_JSON || "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function findApp(env: Env, clientId: string): AppDef | undefined {
+  return appRegistry(env).find((a) => a.clientId === clientId);
+}
+
+/** Lets an app's browser call the API: the pages origin, or an origin registered by an app. */
+function corsOrigin(env: Env, origin: string): string {
+  const fallback = env.ALLOWED_ORIGIN || "*";
+  if (!origin) return fallback;
+  if (origin === fallback) return origin;
+  const known = appRegistry(env).some((a) =>
+    a.redirectUris.some((u) => {
+      try {
+        return new URL(u).origin === origin;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return known ? origin : fallback;
+}
+
+async function sha256Base64url(text: string): Promise<string> {
+  return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(text))));
+}
+
+function oauthError(error: string, description: string, status = 400): Response {
+  return json({ error, error_description: description }, status);
+}
+
+/** Public name of an app, for the consent screen. */
+async function appInfo(env: Env, req: Request): Promise<Response> {
+  const clientId = new URL(req.url).searchParams.get("client_id") || "";
+  const app = findApp(env, clientId);
+  if (!app) throw new HttpError(404, "Unknown app");
+  return json({ name: app.name });
+}
+
+/** The user clicked Allow. Issues a one-time code and returns the address to send the user to. */
+async function authorizeCode(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const b = await readJson(req);
+  const app = findApp(env, String(b.clientId || ""));
+  if (!app) throw new HttpError(400, "Unknown app.");
+  if (!app.redirectUris.includes(String(b.redirectUri || ""))) {
+    throw new HttpError(400, "That redirect address isn't registered for this app.");
+  }
+  if (
+    b.codeChallengeMethod !== "S256" ||
+    typeof b.codeChallenge !== "string" ||
+    b.codeChallenge.length < 43 ||
+    b.codeChallenge.length > 128
+  ) {
+    throw new HttpError(400, "This app must use PKCE with S256.");
+  }
+  const code = randomId(32);
+  await env.DB.prepare(
+    "INSERT INTO oauth_codes (code_hash, curie_id, client_id, redirect_uri, code_challenge, expires_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?)",
+  ).bind(await sha256Base64url(code), curieId, app.clientId, String(b.redirectUri), b.codeChallenge, Date.now() + MINUTE)
+    .run();
+  await env.DB.prepare("INSERT OR IGNORE INTO grants (curie_id, client_id, granted_at) VALUES (?, ?, ?)")
+    .bind(curieId, app.clientId, Date.now()).run();
+  await logEvent(env, curieId, "app_approved");
+  const dest = new URL(String(b.redirectUri));
+  dest.searchParams.set("code", code);
+  if (b.state) dest.searchParams.set("state", String(b.state));
+  return json({ redirect: dest.toString() });
+}
+
+/** The app exchanges the code (plus the PKCE verifier) for an access token. The code works once. */
+async function oauthToken(env: Env, req: Request): Promise<Response> {
+  const isForm = (req.headers.get("content-type") || "").includes("application/x-www-form-urlencoded");
+  const b: Record<string, any> = isForm
+    ? Object.fromEntries(new URLSearchParams(await req.text()))
+    : await readJson(req);
+  if (b.grant_type !== "authorization_code") {
+    return oauthError("unsupported_grant_type", "Use grant_type=authorization_code.");
+  }
+  // Deleted on first use, even if the checks below then fail.
+  const row = await env.DB.prepare("DELETE FROM oauth_codes WHERE code_hash = ? RETURNING *")
+    .bind(await sha256Base64url(String(b.code || ""))).first<Record<string, any>>();
+  if (!row || row.expires_at < Date.now()) {
+    return oauthError("invalid_grant", "The code is invalid, already used, or expired.");
+  }
+  if (b.client_id !== row.client_id || b.redirect_uri !== row.redirect_uri) {
+    return oauthError("invalid_grant", "client_id or redirect_uri doesn't match.");
+  }
+  const verifier = typeof b.code_verifier === "string" ? b.code_verifier : "";
+  if (verifier.length < 43 || verifier.length > 128 || (await sha256Base64url(verifier)) !== row.code_challenge) {
+    return oauthError("invalid_grant", "code_verifier doesn't match.");
+  }
+  if (!findApp(env, row.client_id)) return oauthError("invalid_client", "Unknown app.", 401);
+
+  const sid = randomId(18);
+  const now = Date.now();
+  await env.DB.prepare(
+    "INSERT INTO sessions (sid, curie_id, device_id, created_at, last_used_at, expires_at, revoked, client_id) " +
+      "VALUES (?, ?, NULL, ?, ?, ?, 0, ?)",
+  ).bind(sid, row.curie_id, now, now, now + SESSION_TTL_MS, row.client_id).run();
+  const nowS = Math.floor(now / 1000);
+  const accessToken = await signToken(env, {
+    iss: "curie-id",
+    aud: "curie-apps",
+    sub: row.curie_id,
+    sid,
+    azp: row.client_id,
+    iat: nowS,
+    exp: nowS + TOKEN_TTL_MS / 1000,
+  });
+  await logEvent(env, row.curie_id, "app_signed_in");
+  return json({ access_token: accessToken, token_type: "Bearer", expires_in: TOKEN_TTL_MS / 1000 });
+}
+
+/** The app asks who the user is. Returns only the public fields. */
+async function userinfo(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req, true);
+  const u = await env.DB.prepare("SELECT display_name, username FROM users WHERE curie_id = ?")
+    .bind(curieId).first<Record<string, any>>();
+  if (!u) throw new HttpError(404, "Account not found");
+  return json({ sub: curieId, name: u.display_name, preferred_username: u.username });
+}
+
+async function connectedApps(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const rows = await env.DB.prepare(
+    "SELECT client_id, granted_at FROM grants WHERE curie_id = ? ORDER BY granted_at DESC",
+  ).bind(curieId).all<Record<string, any>>();
+  return json({
+    apps: rows.results.map((g) => ({
+      clientId: g.client_id,
+      name: findApp(env, g.client_id)?.name ?? g.client_id,
+      grantedAt: g.granted_at,
+    })),
+  });
+}
+
+/** Removes the app's access and ends every session it holds. */
+async function disconnectApp(env: Env, req: Request, clientId: string): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  await env.DB.prepare("DELETE FROM grants WHERE curie_id = ? AND client_id = ?").bind(curieId, clientId).run();
+  const r = await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ? AND client_id = ?")
+    .bind(curieId, clientId).run();
+  await logEvent(env, curieId, "app_disconnected");
+  return json({ ok: true, sessionsEnded: r.meta.changes ?? 0 });
 }
 
 async function findAccount(env: Env, raw: unknown): Promise<Record<string, any> | null> {
@@ -852,6 +1018,13 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "POST" && deviceMatch) return revokeDevice(env, req, safeDecode(deviceMatch[1]));
   if (m === "GET" && path === "/me/activity") return activity(env, req);
   if (m === "GET" && path === "/me/security") return securityInfo(env, req);
+  if (m === "GET" && path === "/oauth/app") return appInfo(env, req);
+  if (m === "POST" && path === "/oauth/authorize-code") return authorizeCode(env, req);
+  if (m === "POST" && path === "/oauth/token") return oauthToken(env, req);
+  if (m === "GET" && path === "/oauth/userinfo") return userinfo(env, req);
+  if (m === "GET" && path === "/me/connected-apps") return connectedApps(env, req);
+  const connMatch = path.match(/^\/me\/connected-apps\/([^/]+)$/);
+  if (m === "DELETE" && connMatch) return disconnectApp(env, req, safeDecode(connMatch[1]));
   if (m === "POST" && path === "/me/sessions/revoke-all") return signOutEverywhere(env, req);
   if (m === "POST" && path === "/account/backup-codes") return newBackupCodes(env, req);
 
@@ -924,10 +1097,10 @@ async function signOutEverywhere(env: Env, req: Request): Promise<Response> {
   return json({ ok: true, signedOut: r.meta.changes ?? 0 });
 }
 
-function withHeaders(env: Env, res: Response): Response {
+function withHeaders(env: Env, res: Response, origin: string): Response {
   const headers = new Headers(res.headers);
-  headers.set("Access-Control-Allow-Origin", env.ALLOWED_ORIGIN || "*");
-  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Admin-Token");
   headers.set("Access-Control-Max-Age", "86400");
   headers.set("X-Content-Type-Options", "nosniff");
@@ -939,9 +1112,9 @@ function withHeaders(env: Env, res: Response): Response {
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (req.method === "OPTIONS") return withHeaders(env, new Response(null, { status: 204 }));
+    if (req.method === "OPTIONS") return withHeaders(env, new Response(null, { status: 204 }), corsOrigin(env, req.headers.get("origin") || ""));
     if (Number(req.headers.get("content-length") || 0) > MAX_BODY) {
-      return withHeaders(env, json({ error: "Request too large." }, 413));
+      return withHeaders(env, json({ error: "Request too large." }, 413), env.ALLOWED_ORIGIN || "*");
     }
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -957,7 +1130,7 @@ export default {
         res = json({ error: "Something went wrong. Try again." }, 500);
       }
     }
-    return withHeaders(env, res);
+    return withHeaders(env, res, corsOrigin(env, req.headers.get("origin") || ""));
   },
 
   /** Runs on the cron schedule in wrangler.toml to keep the free-plan tables small. */
@@ -967,5 +1140,6 @@ export default {
     await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(now - DAY).run();
     await env.DB.prepare("DELETE FROM codes WHERE expires_at < ?").bind(now).run();
     await env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now).run();
+    await env.DB.prepare("DELETE FROM oauth_codes WHERE expires_at < ?").bind(now).run();
   },
 };
