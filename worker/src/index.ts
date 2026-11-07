@@ -1032,6 +1032,7 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "GET" && userMatch) return publicUser(env, userMatch[1].toLowerCase());
 
   if (m === "GET" && path === "/admin/hash-timing") return hashTiming(env, req);
+  if (path.startsWith("/admin/")) return adminRoute(env, req, path, ip);
 
   return json({ error: "Not found" }, 404);
 }
@@ -1095,6 +1096,126 @@ async function signOutEverywhere(env: Env, req: Request): Promise<Response> {
   const r = await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(curieId).run();
   await logEvent(env, curieId, "sessions_revoked_all");
   return json({ ok: true, signedOut: r.meta.changes ?? 0 });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: search accounts, suspend or restore them, end their sessions, view activity.
+// Requires the ADMIN_TOKEN secret, sent in the X-Admin-Token header.
+// ---------------------------------------------------------------------------
+
+async function requireAdmin(env: Env, req: Request, ip: string): Promise<void> {
+  if (!env.ADMIN_TOKEN) throw new HttpError(503, "Admin is not configured.");
+  if (await rateLimited(env, `admin-ip:${ip}`, 200, 15 * MINUTE)) {
+    throw new HttpError(429, "Too many requests. Try again later.");
+  }
+  const provided = req.headers.get("x-admin-token") ?? "";
+  if (!constantTimeEqualStr(provided, env.ADMIN_TOKEN)) throw new HttpError(401, "That admin key isn't right.");
+}
+
+function userRow(u: Record<string, any>) {
+  return {
+    curieId: u.curie_id,
+    username: u.username,
+    displayName: u.display_name,
+    email: u.email,
+    status: u.status,
+    createdAt: u.created_at,
+  };
+}
+
+async function adminRoute(env: Env, req: Request, path: string, ip: string): Promise<Response> {
+  await requireAdmin(env, req, ip);
+  const M = req.method;
+  const url = new URL(req.url);
+
+  // Search (or the newest 50 accounts when there's no search term)
+  if (M === "GET" && path === "/admin/users") {
+    const q = cleanStr(url.searchParams.get("q"), 80).toLowerCase().replace(/[%_]/g, "");
+    const rows = q
+      ? await env.DB.prepare(
+          "SELECT curie_id, username, display_name, email, status, created_at FROM users " +
+            "WHERE curie_id LIKE ? OR username LIKE ? OR email LIKE ? OR display_name LIKE ? " +
+            "ORDER BY created_at DESC LIMIT 50",
+        ).bind(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`).all<Record<string, any>>()
+      : await env.DB.prepare(
+          "SELECT curie_id, username, display_name, email, status, created_at FROM users " +
+            "ORDER BY created_at DESC LIMIT 50",
+        ).all<Record<string, any>>();
+    return json({ users: rows.results.map(userRow) });
+  }
+
+  // One account, with its counts, connected apps and recent events
+  const detail = path.match(/^\/admin\/users\/(\d{12}c)$/i);
+  if (M === "GET" && detail) {
+    const id = detail[1].toLowerCase();
+    const u = await env.DB.prepare("SELECT * FROM users WHERE curie_id = ?").bind(id).first<Record<string, any>>();
+    if (!u) throw new HttpError(404, "No account with that Curie ID.");
+    const [sess, devs, ev, apps] = await Promise.all([
+      env.DB.prepare("SELECT COUNT(*) AS n FROM sessions WHERE curie_id = ? AND revoked = 0 AND expires_at > ?")
+        .bind(id, Date.now()).first<{ n: number }>(),
+      env.DB.prepare("SELECT COUNT(*) AS n FROM devices WHERE curie_id = ?").bind(id).first<{ n: number }>(),
+      env.DB.prepare("SELECT type, created_at FROM events WHERE curie_id = ? ORDER BY created_at DESC LIMIT 50")
+        .bind(id).all<Record<string, any>>(),
+      env.DB.prepare("SELECT client_id, granted_at FROM grants WHERE curie_id = ? ORDER BY granted_at DESC")
+        .bind(id).all<Record<string, any>>(),
+    ]);
+    return json({
+      user: {
+        ...userRow(u),
+        dateOfBirth: u.date_of_birth,
+        gender: u.gender,
+        backupCodesLeft: u.backup_codes ? (JSON.parse(u.backup_codes) as string[]).length : 0,
+      },
+      activeSessions: sess?.n ?? 0,
+      trustedDevices: devs?.n ?? 0,
+      connectedApps: apps.results.map((g) => ({
+        clientId: g.client_id,
+        name: findApp(env, g.client_id)?.name ?? g.client_id,
+        grantedAt: g.granted_at,
+      })),
+      events: ev.results.map((e) => ({ type: e.type, createdAt: e.created_at })),
+    });
+  }
+
+  // Suspend or restore. Only confirmed accounts can be changed here.
+  const st = path.match(/^\/admin\/users\/(\d{12}c)\/status$/i);
+  if (M === "POST" && st) {
+    const id = st[1].toLowerCase();
+    const b = await readJson(req);
+    if (b.status !== "active" && b.status !== "suspended") {
+      throw new HttpError(400, "Status must be active or suspended.");
+    }
+    const r = await env.DB.prepare(
+      "UPDATE users SET status = ? WHERE curie_id = ? AND status IN ('active', 'suspended')",
+    ).bind(b.status, id).run();
+    if (!r.meta.changes) throw new HttpError(404, "Account not found, or it hasn't confirmed its email yet.");
+    if (b.status === "suspended") {
+      await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(id).run();
+    }
+    await logEvent(env, id, b.status === "suspended" ? "admin_suspended" : "admin_restored");
+    return json({ ok: true, status: b.status });
+  }
+
+  // End every session for an account
+  const rv = path.match(/^\/admin\/users\/(\d{12}c)\/revoke-sessions$/i);
+  if (M === "POST" && rv) {
+    const id = rv[1].toLowerCase();
+    const r = await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(id).run();
+    await logEvent(env, id, "admin_signed_out");
+    return json({ ok: true, sessionsEnded: r.meta.changes ?? 0 });
+  }
+
+  // Newest events across all accounts
+  if (M === "GET" && path === "/admin/activity") {
+    const rows = await env.DB.prepare(
+      "SELECT curie_id, type, created_at FROM events ORDER BY created_at DESC LIMIT 100",
+    ).all<Record<string, any>>();
+    return json({
+      events: rows.results.map((e) => ({ curieId: e.curie_id, type: e.type, createdAt: e.created_at })),
+    });
+  }
+
+  return json({ error: "Not found" }, 404);
 }
 
 function withHeaders(env: Env, res: Response, origin: string): Response {
