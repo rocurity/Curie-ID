@@ -17,4 +17,4 @@ MIN_AGE = "13"
 MAIL_FROM_NAME = "Curie ID"
 MAIL_FROM_EMAIL = "curieid.app@gmail.com"   # must be a sender verified in Brevo
 ALLOWED_ORIGIN = "https://curie-id.pages.dev"
-APPS_JSON = '[{"clientId":"curie-example","name":"Curie example app","redirectUris":["https://curie-id.pages.dev/example/index.html","https://curie-id.pages.dev/example/","http://localhost:8080/example/index.html"]},{"clientId":"curie-store","name":"Curie Store","redirectUris":["https://rocurity.github.io/Curie-Store/","https://rocurity.github.io/Curie-Store/index.html"]}]'
+APPS_JSON = '[{"clientId":"curie-example","name":"Curie example app","redirectUris":["https://curie-id.pages.dev/example/index.html","https://curie-id.pages.dev/example/","http://localhost:8080/example/index.html"]},{"clientId":"curie-store","name":"Curie Store","redirectUris":["https://rocurity.github.io/Curie-Store/store/","https://rocurity.github.io/Curie-Store/store/index.html","https://rocurity.github.io/Curie-Store/","https://rocurity.github.io/Curie-Store/index.html"]}]'

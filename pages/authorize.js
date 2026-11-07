@@ -66,7 +66,10 @@
     } catch (err) {
       if (err.status === 403 && err.data.status === "verify_email") {
         step = { kind: "verify", curieId: err.data.curieId };
-        askForCode(`Confirm your email first. Enter the code sent to ${err.data.maskedEmail}.`);
+        askForCode(`Confirm your email first. Sending a new code to ${err.data.maskedEmail}...`);
+        C.api("/auth/resend-email", { body: { curieId: err.data.curieId }, noRefresh: true })
+          .then(() => { document.getElementById("code-text").textContent = `Confirm your email first. We sent a new code to ${err.data.maskedEmail}.`; })
+          .catch((e2) => { document.getElementById("code-text").textContent = e2.message; });
         return "";
       }
       throw err;
