@@ -408,15 +408,45 @@ async function authenticate(env: Env, req: Request, allowApp = false): Promise<{
 // App sign-in: OAuth 2.0 authorization code flow with PKCE
 // ---------------------------------------------------------------------------
 
-type AppDef = { clientId: string; name: string; redirectUris: string[] };
+type AppDef = { clientId: string; name: string; redirectUris: string[]; secretHash?: string | null };
+
+let dynamicApps: { at: number; list: AppDef[] } | null = null;
+
+function invalidateApps(): void {
+  dynamicApps = null;
+}
+
+/** Loads developer-registered apps. Cached for a minute, and refreshed after any change. */
+async function loadDynamicApps(env: Env): Promise<void> {
+  if (dynamicApps && Date.now() - dynamicApps.at < MINUTE) return;
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT client_id, name, redirect_uris, client_secret_hash FROM dev_apps WHERE disabled = 0",
+    ).all<Record<string, any>>();
+    dynamicApps = {
+      at: Date.now(),
+      list: rows.results.map((r) => ({
+        clientId: r.client_id,
+        name: r.name,
+        redirectUris: JSON.parse(r.redirect_uris),
+        secretHash: r.client_secret_hash ?? null,
+      })),
+    };
+  } catch (e) {
+    console.error("could not load developer apps", e);
+    dynamicApps = { at: Date.now(), list: [] };
+  }
+}
 
 function appRegistry(env: Env): AppDef[] {
+  let fixed: AppDef[] = [];
   try {
     const list = JSON.parse(env.APPS_JSON || "[]");
-    return Array.isArray(list) ? list : [];
+    fixed = Array.isArray(list) ? list : [];
   } catch {
-    return [];
+    fixed = [];
   }
+  return [...fixed, ...(dynamicApps?.list ?? [])];
 }
 
 function findApp(env: Env, clientId: string): AppDef | undefined {
@@ -510,7 +540,14 @@ async function oauthToken(env: Env, req: Request): Promise<Response> {
   if (verifier.length < 43 || verifier.length > 128 || (await sha256Base64url(verifier)) !== row.code_challenge) {
     return oauthError("invalid_grant", "code_verifier doesn't match.");
   }
-  if (!findApp(env, row.client_id)) return oauthError("invalid_client", "Unknown app.", 401);
+  const appDef = findApp(env, row.client_id);
+  if (!appDef) return oauthError("invalid_client", "Unknown app.", 401);
+  if (appDef.secretHash) {
+    const given = typeof b.client_secret === "string" ? b.client_secret : "";
+    if (!given || (await hmacHex(env.CODE_SECRET, `appsecret:${given}`)) !== appDef.secretHash) {
+      return oauthError("invalid_client", "client_secret is wrong.", 401);
+    }
+  }
 
   const sid = randomId(18);
   const now = Date.now();
@@ -1018,6 +1055,9 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   const deviceMatch = path.match(/^\/me\/devices\/([^/]+)\/revoke$/);
   if (m === "POST" && deviceMatch) return revokeDevice(env, req, safeDecode(deviceMatch[1]));
   if (m === "GET" && path === "/me/activity") return activity(env, req);
+  if (m === "POST" && path === "/me/email/start") return startEmailChange(env, req);
+  if (m === "POST" && path === "/me/email/confirm") return confirmEmailChange(env, req);
+  if (m === "POST" && path === "/me/email/cancel") return cancelEmailChange(env, req);
   if (m === "GET" && path === "/me/security") return securityInfo(env, req);
   if (m === "GET" && path === "/oauth/app") return appInfo(env, req);
   if (m === "POST" && path === "/oauth/authorize-code") return authorizeCode(env, req);
@@ -1033,6 +1073,7 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "GET" && userMatch) return publicUser(env, userMatch[1].toLowerCase());
 
   if (m === "GET" && path === "/admin/hash-timing") return hashTiming(env, req);
+  if (path.startsWith("/dev/")) return devRoute(env, req, path);
   if (path.startsWith("/admin/")) return adminRoute(env, req, path, ip);
 
   return json({ error: "Not found" }, 404);
@@ -1066,6 +1107,82 @@ async function useBackupCode(env: Env, curieId: string, code: unknown): Promise<
   const r = await env.DB.prepare("UPDATE users SET backup_codes = ? WHERE curie_id = ? AND backup_codes IS ?")
     .bind(JSON.stringify(list.filter((x) => x !== h)), curieId, row?.backup_codes ?? null).run();
   if (!r.meta.changes) throw new HttpError(400, WRONG_CODE);
+}
+
+// ---------------------------------------------------------------------------
+// Change email: a code goes to the new address, and the change applies only when it's entered.
+// ---------------------------------------------------------------------------
+
+async function startEmailChange(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const b = await readJson(req);
+  const newEmail = cleanStr(b.newEmail, 254).toLowerCase();
+  if (!EMAIL_RE.test(newEmail)) throw new HttpError(400, "Enter a valid email address.");
+  if (await rateLimited(env, `email-change:${curieId}`, 5, HOUR)) {
+    throw new HttpError(429, "Too many attempts. Try again later.");
+  }
+  const u = await env.DB.prepare("SELECT email, password_hash FROM users WHERE curie_id = ?")
+    .bind(curieId).first<Record<string, any>>();
+  if (!u) throw new HttpError(404, "Account not found");
+  if (newEmail === u.email) throw new HttpError(400, "That's already your email address.");
+  if (typeof b.password !== "string" || !(await verifyPassword(b.password, u.password_hash))) {
+    throw new HttpError(401, "Password is incorrect.");
+  }
+  const taken = await env.DB.prepare("SELECT 1 AS found FROM users WHERE email = ?").bind(newEmail).first();
+  if (taken) throw new HttpError(409, "That email already has a Curie ID.");
+
+  await env.DB.prepare("UPDATE users SET pending_email = ? WHERE curie_id = ?").bind(newEmail, curieId).run();
+  await issueCode(env, {
+    id: `${curieId}:email`,
+    curieId,
+    purpose: "email",
+    deviceId: null,
+    to: newEmail,
+    subject: "Confirm your new Curie ID email",
+    heading: "Confirm your new email",
+    intro: "Use this code to confirm this email address for your Curie ID.",
+    showId: false,
+    footer: "If you didn't ask for this, ignore this email.",
+  });
+  return json({ ok: true, maskedEmail: maskEmail(newEmail) });
+}
+
+async function confirmEmailChange(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const b = await readJson(req);
+  const u = await env.DB.prepare("SELECT email, pending_email FROM users WHERE curie_id = ?")
+    .bind(curieId).first<Record<string, any>>();
+  if (!u || !u.pending_email) throw new HttpError(400, WRONG_CODE);
+  await redeemCode(env, `${curieId}:email`, b.code);
+  try {
+    await env.DB.prepare("UPDATE users SET email = ?, pending_email = NULL WHERE curie_id = ?")
+      .bind(u.pending_email, curieId).run();
+  } catch (e) {
+    if (isUniqueError(e)) throw new HttpError(409, "That email was just taken. Start again with another address.");
+    throw e;
+  }
+  await logEvent(env, curieId, "email_changed");
+  // Tell the old address, so the owner notices if it wasn't them. A failure here doesn't undo the change.
+  try {
+    await sendEmail(
+      env,
+      u.email,
+      "Your Curie ID email was changed",
+      `The email address for your Curie ID was changed to ${u.pending_email}. If this wasn't you, contact support straight away.`,
+      `<p>The email address for your Curie ID was changed to <strong>${escHtml(u.pending_email)}</strong>.</p>` +
+        `<p>If this wasn't you, contact support straight away.</p>`,
+    );
+  } catch (e) {
+    console.error("email change notice failed", e);
+  }
+  return json({ ok: true });
+}
+
+async function cancelEmailChange(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  await env.DB.prepare("UPDATE users SET pending_email = NULL WHERE curie_id = ?").bind(curieId).run();
+  await env.DB.prepare("DELETE FROM codes WHERE id = ?").bind(`${curieId}:email`).run();
+  return json({ ok: true });
 }
 
 async function securityInfo(env: Env, req: Request): Promise<Response> {
@@ -1103,6 +1220,133 @@ async function signOutEverywhere(env: Env, req: Request): Promise<Response> {
 // Admin: search accounts, suspend or restore them, end their sessions, view activity.
 // Requires the ADMIN_TOKEN secret, sent in the X-Admin-Token header.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Developer portal: any signed-in Curie ID user can register and manage their own apps.
+// App sessions can't use this, so an app can't change its own settings.
+// ---------------------------------------------------------------------------
+
+const MAX_OWN_APPS = 10;
+
+function validRedirects(list: unknown): string[] | null {
+  if (!Array.isArray(list) || list.length < 1 || list.length > 10) return null;
+  const out: string[] = [];
+  for (const v of list) {
+    if (typeof v !== "string" || v.length > 500) return null;
+    try {
+      const u = new URL(v);
+      if (u.hash) return null;
+      const ok = u.protocol === "https:" ||
+        (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1"));
+      if (!ok) return null;
+    } catch {
+      return null;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+async function ownedApp(env: Env, curieId: string, clientId: string): Promise<Record<string, any>> {
+  const row = await env.DB.prepare("SELECT * FROM dev_apps WHERE client_id = ? AND owner_curie_id = ?")
+    .bind(clientId, curieId).first<Record<string, any>>();
+  if (!row) throw new HttpError(404, "App not found");
+  return row;
+}
+
+async function connectedCount(env: Env, clientId: string): Promise<number> {
+  const c = await env.DB.prepare("SELECT COUNT(*) AS n FROM grants WHERE client_id = ?")
+    .bind(clientId).first<{ n: number }>();
+  return c?.n ?? 0;
+}
+
+function appView(a: Record<string, any>, connectedUsers: number) {
+  return {
+    clientId: a.client_id,
+    name: a.name,
+    type: a.type,
+    redirectUris: JSON.parse(a.redirect_uris),
+    createdAt: a.created_at,
+    connectedUsers,
+  };
+}
+
+async function devRoute(env: Env, req: Request, path: string): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const M = req.method;
+
+  if (M === "GET" && path === "/dev/apps") {
+    const rows = await env.DB.prepare("SELECT * FROM dev_apps WHERE owner_curie_id = ? ORDER BY created_at DESC")
+      .bind(curieId).all<Record<string, any>>();
+    const apps = [];
+    for (const a of rows.results) apps.push(appView(a, await connectedCount(env, a.client_id)));
+    return json({ apps });
+  }
+
+  if (M === "POST" && path === "/dev/apps") {
+    const b = await readJson(req);
+    const name = cleanStr(b.name, 60);
+    if (!name) throw new HttpError(400, "Give your app a name.");
+    const type = b.type === "confidential" ? "confidential" : "public";
+    const redirects = validRedirects(b.redirectUris);
+    if (!redirects) {
+      throw new HttpError(400, "Add 1 to 10 redirect addresses. Use https://, or http://localhost while testing, with no #.");
+    }
+    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM dev_apps WHERE owner_curie_id = ?")
+      .bind(curieId).first<{ n: number }>();
+    if ((count?.n ?? 0) >= MAX_OWN_APPS) throw new HttpError(400, `You can register up to ${MAX_OWN_APPS} apps.`);
+
+    const clientId = `app_${randomCode(20)}`;
+    const secret = type === "confidential" ? randomId(32) : null;
+    const hash = secret ? await hmacHex(env.CODE_SECRET, `appsecret:${secret}`) : null;
+    await env.DB.prepare(
+      "INSERT INTO dev_apps (client_id, name, owner_curie_id, type, redirect_uris, client_secret_hash, disabled, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+    ).bind(clientId, name, curieId, type, JSON.stringify(redirects), hash, Date.now()).run();
+    invalidateApps();
+    await logEvent(env, curieId, "dev_app_created");
+    return json({ clientId, clientSecret: secret, name, type, redirectUris: redirects }, 201);
+  }
+
+  const one = path.match(/^\/dev\/apps\/([A-Za-z0-9_]+)$/);
+  if (one && M === "PATCH") {
+    const a = await ownedApp(env, curieId, one[1]);
+    const b = await readJson(req);
+    const name = b.name !== undefined ? cleanStr(b.name, 60) : a.name;
+    if (!name) throw new HttpError(400, "Give your app a name.");
+    const redirects = b.redirectUris !== undefined ? validRedirects(b.redirectUris) : JSON.parse(a.redirect_uris);
+    if (!redirects) {
+      throw new HttpError(400, "Add 1 to 10 redirect addresses. Use https://, or http://localhost while testing, with no #.");
+    }
+    await env.DB.prepare("UPDATE dev_apps SET name = ?, redirect_uris = ? WHERE client_id = ?")
+      .bind(name, JSON.stringify(redirects), a.client_id).run();
+    invalidateApps();
+    return json(appView({ ...a, name, redirect_uris: JSON.stringify(redirects) }, await connectedCount(env, a.client_id)));
+  }
+  if (one && M === "DELETE") {
+    const a = await ownedApp(env, curieId, one[1]);
+    await env.DB.prepare("DELETE FROM dev_apps WHERE client_id = ?").bind(a.client_id).run();
+    await env.DB.prepare("DELETE FROM grants WHERE client_id = ?").bind(a.client_id).run();
+    await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE client_id = ?").bind(a.client_id).run();
+    invalidateApps();
+    await logEvent(env, curieId, "dev_app_deleted");
+    return json({ ok: true });
+  }
+
+  const rot = path.match(/^\/dev\/apps\/([A-Za-z0-9_]+)\/rotate-secret$/);
+  if (rot && M === "POST") {
+    const a = await ownedApp(env, curieId, rot[1]);
+    if (a.type !== "confidential") throw new HttpError(400, "Public apps don't have a secret.");
+    const secret = randomId(32);
+    await env.DB.prepare("UPDATE dev_apps SET client_secret_hash = ? WHERE client_id = ?")
+      .bind(await hmacHex(env.CODE_SECRET, `appsecret:${secret}`), a.client_id).run();
+    invalidateApps();
+    await logEvent(env, curieId, "dev_app_secret_rotated");
+    return json({ clientId: a.client_id, clientSecret: secret });
+  }
+
+  return json({ error: "Not found" }, 404);
+}
 
 /** Signs in the admin with the ADMIN_PASSWORD secret. Returns a token that lasts two hours. */
 async function adminLogin(env: Env, req: Request, ip: string): Promise<Response> {
@@ -1272,6 +1516,7 @@ function withHeaders(env: Env, res: Response, origin: string): Response {
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    await loadDynamicApps(env);
     if (req.method === "OPTIONS") return withHeaders(env, new Response(null, { status: 204 }), corsOrigin(env, req.headers.get("origin") || ""));
     if (Number(req.headers.get("content-length") || 0) > MAX_BODY) {
       return withHeaders(env, json({ error: "Request too large." }, 413), env.ALLOWED_ORIGIN || "*");
