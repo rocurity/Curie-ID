@@ -8,21 +8,34 @@
 <link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="index.html">Curie ID</a>
-    <nav class="nav" aria-label="Main">
-      <a href="account.html">Account</a>
-      <a href="developers.html">Developers</a>
-      <a href="admin.html" aria-current="page">Admin</a>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html">Curie ID <span class="muted" style="font-weight:500">Admin</span></a>
+    <nav class="side-nav" aria-label="Admin sections">
+      <div class="side-group">
+        <h4>Admin</h4>
+        <a class="side-link" href="#users">Users</a>
+        <a class="side-link" href="#maintenance">Maintenance</a>
+        <a class="side-link" href="#activity">Recent activity</a>
+      </div>
+      <div class="side-group">
+        <h4>Go to</h4>
+        <a class="side-link" href="account.html">Account</a>
+        <a class="side-link" href="developers.html">Developers</a>
+      </div>
     </nav>
-    <div class="topbar-actions"><button class="ghost" id="signout" hidden>Sign out</button></div>
-  </div>
-</header>
-<main class="page">
-  <div id="app" class="stack"></div>
-</main>
+    <div class="side-foot"><button class="ghost" id="signout" hidden>Sign out</button></div>
+  </aside>
+  <main class="app-main">
+    <div class="page-head">
+      <h1>Admin</h1>
+      <p>Find accounts, manage access and keep the system tidy.</p>
+    </div>
+    <div id="app" class="stack"></div>
+  </main>
+</div>
 <script src="config.js"></script>
+<script src="curie.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>

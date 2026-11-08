@@ -43,7 +43,7 @@
   function render(me, sessions, devices, backupLeft, events, apps) {
     const here = C.deviceId();
     app.innerHTML = `
-      <section>
+      <section id="profile">
         <h2>Profile</h2>
         <p class="muted">Curie ID <strong>${C.esc(me.curieId)}</strong></p>
         <form id="profile">
@@ -58,7 +58,7 @@
         </form>
       </section>
 
-      <section>
+      <section id="email">
         <h2>Email address</h2>
         <p class="muted">Current: <strong>${C.esc(me.email)}</strong>. Used for sign-in codes and password resets.</p>
         <form id="email-start">
@@ -74,7 +74,7 @@
         </form>
       </section>
 
-      <section>
+      <section id="password">
         <h2>Change password</h2>
         <form id="password">
           <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
@@ -84,7 +84,7 @@
         <p class="muted">Changing your password signs out your other sessions.</p>
       </section>
 
-      <section>
+      <section id="backup">
         <h2>Backup codes</h2>
         <p class="muted">You have <strong>${backupLeft}</strong> unused. Each one resets your password once, even without email. Making new codes replaces the old ones.</p>
         <form id="backup">
@@ -94,7 +94,7 @@
         <div id="codes"></div>
       </section>
 
-      <section>
+      <section id="apps">
         <h2>Connected apps</h2>
         <p class="muted">Apps you've let sign you in with Curie ID. Disconnecting an app signs you out of it.</p>
         <ul>${apps.map((a) => `
@@ -104,7 +104,7 @@
           || "<li class='muted'>No connected apps.</li>"}</ul>
       </section>
 
-      <section>
+      <section id="sessions">
         <h2>Where you're signed in</h2>
         <ul>${sessions.map((s) => `
           <li><span>${s.isCurrent ? "<strong>This session</strong>" : "Another session"}
@@ -118,7 +118,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="devices">
         <h2>Trusted devices</h2>
         <p class="muted">A new device needs a code emailed to you. Removing a device also signs out its sessions.</p>
         <ul>${devices.map((d) => `
@@ -129,7 +129,7 @@
               : `<button class="ghost" data-device="${C.esc(d.deviceId)}">Remove</button>`}</li>`).join("")}</ul>
       </section>
 
-      <section>
+      <section id="activity">
         <h2>Recent activity</h2>
         <ul>${events.map((ev) => `
           <li><span>${C.esc(LABELS[ev.type] || String(ev.type).replace(/_/g, " "))}</span>

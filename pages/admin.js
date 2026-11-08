@@ -84,7 +84,7 @@
   function home() {
     signout.hidden = false;
     app.innerHTML = `
-      <section class="card">
+      <section class="card" id="users">
         <form id="search" class="row">
           <input name="q" placeholder="Search by Curie ID, username, name or email" autocomplete="off">
           <button>Search</button>
@@ -92,14 +92,14 @@
         <div id="results" style="margin-top:.8rem"></div>
       </section>
       <div id="detail"></div>
-      <section class="card">
+      <section class="card" id="maintenance">
         <h2>Maintenance</h2>
         <p class="muted">Gives every account with an old 12-digit Curie ID a new 9-digit one. Their existing sign-ins end, so they'll sign in again.</p>
         <div class="actions"><button id="maint" class="ghost">Convert old IDs</button></div>
         <div id="maint-out"></div>
       </section>
 
-      <section class="card">
+      <section class="card" id="activity">
         <h2>Recent activity</h2>
         <div id="activity"></div>
       </section>`;

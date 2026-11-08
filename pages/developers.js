@@ -91,12 +91,12 @@
   function render(apps) {
     app.innerHTML = `
       ${pending ? secretBox(pending) : ""}
-      <section class="card">
+      <section class="card" id="apps">
         <h2>Your apps</h2>
         ${apps.length ? apps.map(card).join("") : "<p class='muted'>You haven't registered an app yet. Create one below.</p>"}
       </section>
 
-      <section class="card">
+      <section class="card" id="register">
         <h2>Register an app</h2>
         <form id="new">
           <label>App name<input name="name" maxlength="60" required></label>
@@ -115,7 +115,7 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card" id="connect">
         <h2>How to connect</h2>
         <p class="muted">Use your app's client ID in the code below. Full guide: DEVELOPERS.md.</p>
         <pre>${C.esc(snippet(apps[0] ? apps[0].clientId : "YOUR_CLIENT_ID"))}</pre>

@@ -3,28 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>Developers · Curie ID</title>
 <link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="developers.html">Curie ID</a>
-    <nav class="nav" aria-label="Main">
-      <a href="account.html">Account</a>
-      <a href="developers.html" aria-current="page">Developers</a>
-      <a href="admin.html">Admin</a>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html">Curie ID</a>
+    <nav class="side-nav" aria-label="Developer sections">
+      <div class="side-group">
+        <h4>Apps</h4>
+        <a class="side-link" href="#apps">Your apps</a>
+        <a class="side-link" href="#register">Register an app</a>
+        <a class="side-link" href="#connect">How to connect</a>
+      </div>
+      <div class="side-group">
+        <h4>Go to</h4>
+        <a class="side-link" href="account.html">Account</a>
+        <a class="side-link" href="admin.html">Admin</a>
+      </div>
     </nav>
-    <div class="topbar-actions"><button class="ghost" id="signout">Sign out</button></div>
-  </div>
-</header>
-<main class="page">
-  <div class="page-head">
-    <h1>Developers</h1>
-    <p>Register apps that let people sign in with their Curie ID.</p>
-  </div>
-  <div id="app" class="stack"></div>
-</main>
+    <div class="side-foot"><button class="ghost" id="signout">Sign out</button></div>
+  </aside>
+  <main class="app-main">
+    <div class="page-head">
+      <h1>Developers</h1>
+      <p>Register apps that let people sign in with their Curie ID.</p>
+    </div>
+    <div id="app" class="stack"></div>
+  </main>
+</div>
 <script src="config.js"></script>
 <script src="curie.js"></script>
 <script src="developers.js"></script>

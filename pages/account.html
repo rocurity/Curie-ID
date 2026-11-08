@@ -3,28 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
 <title>Your account · Curie ID</title>
 <link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="account.html">Curie ID</a>
-    <nav class="nav" aria-label="Main">
-      <a href="account.html" aria-current="page">Account</a>
-      <a href="developers.html">Developers</a>
-      <a href="admin.html">Admin</a>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html">Curie ID</a>
+    <nav class="side-nav" aria-label="Account sections">
+      <div class="side-group">
+        <h4>Account</h4>
+        <a class="side-link" href="#profile">Profile</a>
+        <a class="side-link" href="#email">Email address</a>
+        <a class="side-link" href="#password">Password</a>
+      </div>
+      <div class="side-group">
+        <h4>Security</h4>
+        <a class="side-link" href="#backup">Backup codes</a>
+        <a class="side-link" href="#sessions">Signed-in sessions</a>
+        <a class="side-link" href="#devices">Trusted devices</a>
+      </div>
+      <div class="side-group">
+        <h4>Apps and activity</h4>
+        <a class="side-link" href="#apps">Connected apps</a>
+        <a class="side-link" href="#activity">Recent activity</a>
+      </div>
+      <div class="side-group">
+        <h4>Go to</h4>
+        <a class="side-link" href="developers.html">Developers</a>
+        <a class="side-link" href="admin.html">Admin</a>
+      </div>
     </nav>
-    <div class="topbar-actions"><button class="ghost" id="signout">Sign out</button></div>
-  </div>
-</header>
-<main class="page">
-  <div class="page-head">
-    <h1>Your account</h1>
-    <p>Manage your profile, sign-in, devices and connected apps.</p>
-  </div>
-  <div id="app" class="grid"></div>
-</main>
+    <div class="side-foot"><button class="ghost" id="signout">Sign out</button></div>
+  </aside>
+  <main class="app-main">
+    <div class="page-head">
+      <h1>Your account</h1>
+      <p>Manage your profile, sign-in, devices and connected apps.</p>
+    </div>
+    <div id="app" class="grid"></div>
+  </main>
+</div>
 <script src="config.js"></script>
 <script src="curie.js"></script>
 <script src="account.js"></script>
