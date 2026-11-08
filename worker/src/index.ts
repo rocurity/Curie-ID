@@ -1635,7 +1635,7 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
 function withHeaders(env: Env, res: Response, origin: string): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", origin);
-  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Admin-Token");
   headers.set("Access-Control-Max-Age", "86400");
   headers.set("X-Content-Type-Options", "nosniff");
