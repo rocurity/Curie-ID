@@ -266,11 +266,14 @@
           canvas.width = size;
           canvas.height = size;
           canvas.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
-          URL.revokeObjectURL(img.src);
           resolve(canvas.toDataURL("image/jpeg", 0.86));
         };
         img.onerror = () => reject(new Error("We couldn't read that picture. Try a PNG, JPEG or WebP."));
-        img.src = URL.createObjectURL(file);
+        // Read the file as a data address. Temporary blob addresses are blocked by the site's security policy.
+        const reader = new FileReader();
+        reader.onload = () => { img.src = reader.result; };
+        reader.onerror = () => reject(new Error("We couldn't read that file. Try a PNG, JPEG or WebP."));
+        reader.readAsDataURL(file);
       });
     }
 
