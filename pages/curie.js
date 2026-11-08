@@ -65,5 +65,5 @@
       .finally(() => { if (btn) btn.disabled = false; });
   }
 
-  window.Curie = { api, token, setToken, clearToken, deviceId, esc, fmt, submit };
+  window.Curie = { API: (window.CURIE_API || "").replace(/\/$/, ""), api, token, setToken, clearToken, deviceId, esc, fmt, submit };
 })();

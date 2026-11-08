@@ -575,7 +575,13 @@ async function userinfo(env: Env, req: Request): Promise<Response> {
   const u = await env.DB.prepare("SELECT display_name, username FROM users WHERE curie_id = ?")
     .bind(curieId).first<Record<string, any>>();
   if (!u) throw new HttpError(404, "Account not found");
-  return json({ sub: curieId, name: u.display_name, preferred_username: u.username });
+  const hasPic = await env.DB.prepare("SELECT 1 AS x FROM avatars WHERE curie_id = ?").bind(curieId).first();
+  return json({
+    sub: curieId,
+    name: u.display_name,
+    preferred_username: u.username,
+    picture: hasPic ? `${new URL(req.url).origin}/avatar/${curieId}` : null,
+  });
 }
 
 async function connectedApps(env: Env, req: Request): Promise<Response> {
@@ -894,6 +900,8 @@ async function loadMe(env: Env, curieId: string): Promise<Response> {
     dateOfBirth: u.date_of_birth,
     gender: u.gender,
     createdAt: u.created_at,
+    avatarVersion: (await env.DB.prepare("SELECT updated_at FROM avatars WHERE curie_id = ?")
+      .bind(curieId).first<{ updated_at: number }>())?.updated_at ?? null,
   });
 }
 
@@ -1056,6 +1064,8 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "POST" && deviceMatch) return revokeDevice(env, req, safeDecode(deviceMatch[1]));
   if (m === "GET" && path === "/me/activity") return activity(env, req);
   if (m === "POST" && path === "/me/email/start") return startEmailChange(env, req);
+  if (m === "PUT" && path === "/me/avatar") return uploadAvatar(env, req);
+  if (m === "DELETE" && path === "/me/avatar") return deleteAvatar(env, req);
   if (m === "POST" && path === "/me/email/confirm") return confirmEmailChange(env, req);
   if (m === "POST" && path === "/me/email/cancel") return cancelEmailChange(env, req);
   if (m === "GET" && path === "/me/security") return securityInfo(env, req);
@@ -1068,6 +1078,9 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "DELETE" && connMatch) return disconnectApp(env, req, safeDecode(connMatch[1]));
   if (m === "POST" && path === "/me/sessions/revoke-all") return signOutEverywhere(env, req);
   if (m === "POST" && path === "/account/backup-codes") return newBackupCodes(env, req);
+
+  const avatarMatch = path.match(/^\/avatar\/(\d{9}c)$/i);
+  if (m === "GET" && avatarMatch) return serveAvatar(env, avatarMatch[1].toLowerCase());
 
   const userMatch = path.match(/^\/user\/(\d{9}c)$/i);
   if (m === "GET" && userMatch) return publicUser(env, userMatch[1].toLowerCase());
@@ -1183,6 +1196,81 @@ async function cancelEmailChange(env: Env, req: Request): Promise<Response> {
   await env.DB.prepare("UPDATE users SET pending_email = NULL WHERE curie_id = ?").bind(curieId).run();
   await env.DB.prepare("DELETE FROM codes WHERE id = ?").bind(`${curieId}:email`).run();
   return json({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Profile pictures and account deletion
+// ---------------------------------------------------------------------------
+
+const AVATAR_MAX = 300_000; // characters of base64, about 220 KB
+
+async function readBodyLarge(req: Request): Promise<Record<string, any>> {
+  const text = await req.text();
+  if (text.length > AVATAR_MAX + 1000) throw new HttpError(413, "That picture is too large. Choose a smaller one.");
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    throw new HttpError(400, "Send the request as JSON.");
+  }
+}
+
+async function uploadAvatar(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  const b = await readBodyLarge(req);
+  const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data || ""));
+  if (!m) throw new HttpError(400, "Choose a JPEG, PNG or WebP picture.");
+  if (m[2].length > AVATAR_MAX) throw new HttpError(413, "That picture is too large. Choose a smaller one.");
+  await env.DB.prepare(
+    "INSERT INTO avatars (curie_id, mime, data, updated_at) VALUES (?, ?, ?, ?) " +
+      "ON CONFLICT(curie_id) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at",
+  ).bind(curieId, `image/${m[1]}`, m[2], Date.now()).run();
+  return json({ ok: true });
+}
+
+async function deleteAvatar(env: Env, req: Request): Promise<Response> {
+  const { curieId } = await authenticate(env, req);
+  await env.DB.prepare("DELETE FROM avatars WHERE curie_id = ?").bind(curieId).run();
+  return json({ ok: true });
+}
+
+/** Public: anyone can see a profile picture, as with Google accounts. */
+async function serveAvatar(env: Env, curieId: string): Promise<Response> {
+  const row = await env.DB.prepare("SELECT mime, data FROM avatars WHERE curie_id = ?")
+    .bind(curieId).first<Record<string, any>>();
+  if (!row) return json({ error: "No picture" }, 404);
+  const bytes = Uint8Array.from(atob(row.data), (c) => c.charCodeAt(0));
+  return new Response(bytes, { headers: { "Content-Type": row.mime, "Cache-Control": "public, max-age=86400" } });
+}
+
+/** Admin: permanently deletes an account and everything linked to it. Needs the Curie ID typed back. */
+async function deleteAccount(env: Env, curieId: string, confirmId: string): Promise<Response> {
+  const id = curieId.toLowerCase();
+  if (confirmId.trim().toLowerCase() !== id) throw new HttpError(400, "The Curie ID didn't match. Nothing was deleted.");
+  const u = await env.DB.prepare("SELECT curie_id FROM users WHERE curie_id = ?").bind(id).first();
+  if (!u) throw new HttpError(404, "No account with that Curie ID.");
+  const owned = await env.DB.prepare("SELECT client_id FROM dev_apps WHERE owner_curie_id = ?")
+    .bind(id).all<Record<string, any>>();
+
+  const stmts = [
+    env.DB.prepare("DELETE FROM sessions WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM devices WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM codes WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM events WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM grants WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM oauth_codes WHERE curie_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM avatars WHERE curie_id = ?").bind(id),
+  ];
+  // Apps this account owns go too, with everyone's sessions and grants for them
+  for (const a of owned.results) {
+    stmts.push(env.DB.prepare("DELETE FROM sessions WHERE client_id = ?").bind(a.client_id));
+    stmts.push(env.DB.prepare("DELETE FROM grants WHERE client_id = ?").bind(a.client_id));
+    stmts.push(env.DB.prepare("DELETE FROM dev_apps WHERE client_id = ?").bind(a.client_id));
+  }
+  stmts.push(env.DB.prepare("DELETE FROM users WHERE curie_id = ?").bind(id));
+  await env.DB.batch(stmts);
+  invalidateApps();
+  return json({ ok: true, appsRemoved: owned.results.length });
 }
 
 async function securityInfo(env: Env, req: Request): Promise<Response> {
@@ -1448,6 +1536,11 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
   const url = new URL(req.url);
 
   if (M === "POST" && path === "/admin/migrate-ids") return migrateOldIds(env);
+  const delAccount = path.match(/^\/admin\/users\/(\d{9}c)$/i);
+  if (M === "DELETE" && delAccount) {
+    const b = await readJson(req);
+    return deleteAccount(env, delAccount[1], String(b.confirm || ""));
+  }
 
   // Search (or the newest 50 accounts when there's no search term)
   if (M === "GET" && path === "/admin/users") {
@@ -1548,7 +1641,7 @@ function withHeaders(env: Env, res: Response, origin: string): Response {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   headers.set("Referrer-Policy", "no-referrer");
-  headers.set("Cache-Control", "no-store");
+  if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
   return new Response(res.body, { status: res.status, headers });
 }
 
@@ -1556,7 +1649,7 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await loadDynamicApps(env);
     if (req.method === "OPTIONS") return withHeaders(env, new Response(null, { status: 204 }), corsOrigin(env, req.headers.get("origin") || ""));
-    if (Number(req.headers.get("content-length") || 0) > MAX_BODY) {
+    if (Number(req.headers.get("content-length") || 0) > MAX_BODY && !new URL(req.url).pathname.startsWith("/me/avatar")) {
       return withHeaders(env, json({ error: "Request too large." }, 413), env.ALLOWED_ORIGIN || "*");
     }
     const url = new URL(req.url);

@@ -167,6 +167,7 @@
             ? '<button data-act="restore">Restore account</button>'
             : '<button class="danger" data-act="suspend">Suspend account</button>'}
           <button class="ghost" data-act="signout">Sign out everywhere</button>
+          <button class="danger" data-act="delete">Delete account</button>
           <button class="ghost" data-act="close">Close</button>
         </div>
         <p class="status" id="detail-status"></p>
@@ -182,6 +183,20 @@
       if (act === "close") { box.innerHTML = ""; return; }
       const status = document.getElementById("detail-status");
       try {
+        if (act === "delete") {
+          const typed = prompt(`This permanently deletes ${id} and everything linked to it. Type the Curie ID to confirm:`);
+          if (typed === null) return;
+          if (typed.trim().toLowerCase() !== id) {
+            status.textContent = "The Curie ID didn't match, so nothing was deleted.";
+            status.className = "status bad";
+            return;
+          }
+          await api(`/admin/users/${encodeURIComponent(id)}`, { method: "DELETE", body: { confirm: id } });
+          box.innerHTML = "";
+          search(lastQuery);
+          loadActivity();
+          return;
+        }
         if (act === "suspend" || act === "restore") {
           if (act === "suspend" && !confirm("Suspend this account? Its sessions will end, and it can't sign in until restored.")) return;
           await api(`/admin/users/${encodeURIComponent(id)}/status`, {

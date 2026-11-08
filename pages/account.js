@@ -144,10 +144,23 @@
           <span class="muted">${C.fmt(ev.createdAt)}</span></li>`).join("")
         || "<li class='muted'>Nothing yet.</li>"}</ul>`;
 
+    const photoBody = `
+      <form id="f-photo">
+        <label>Choose a picture<input type="file" name="photo" accept="image/png,image/jpeg,image/webp" required></label>
+        <div class="actions">
+          <button>Save photo</button>
+          ${me.avatarVersion ? '<button type="button" class="ghost" id="photo-remove">Remove photo</button>' : ""}
+        </div>
+        <p class="status"></p>
+        <p class="item-note">A square picture works best. We crop it to a square and resize it to 256 pixels.</p>
+      </form>`;
+
     app.innerHTML = `
       <section class="group" id="home">
         <div class="card hero">
-          <div class="avatar">${C.esc(initial)}</div>
+          ${me.avatarVersion
+            ? `<img class="avatar-img" alt="" src="${C.API}/avatar/${me.curieId}?v=${me.avatarVersion}">`
+            : `<div class="avatar">${C.esc(initial)}</div>`}
           <div>
             <h2>${C.esc(me.displayName)}</h2>
             <p class="muted">@${C.esc(me.username)} · Curie ID ${C.esc(me.curieId)}</p>
@@ -183,6 +196,7 @@
               </select></label>
               <div class="actions"><button>Save</button></div><p class="status"></p>
             </form>`)}
+          ${item("Profile photo", me.avatarVersion ? "Set" : "Not set", photoBody)}
           ${staticRow("Date of birth", C.esc(me.dateOfBirth), "To change this, contact support.")}
         </div>
       </section>
@@ -222,6 +236,39 @@
     saveField("f-name", (fd) => ({ displayName: fd.get("displayName") }));
     saveField("f-username", (fd) => ({ username: fd.get("username") }));
     saveField("f-gender", (fd) => ({ gender: fd.get("gender") || null }));
+
+    // Profile photo: crop to a square, shrink, then send
+    function squareJpeg(file, size) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const side = Math.min(img.width, img.height);
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          canvas.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+          URL.revokeObjectURL(img.src);
+          resolve(canvas.toDataURL("image/jpeg", 0.86));
+        };
+        img.onerror = () => reject(new Error("We couldn't read that picture. Try a PNG, JPEG or WebP."));
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    document.getElementById("f-photo").addEventListener("submit", (e) => C.submit(e, async (fd) => {
+      const file = fd.get("photo");
+      if (!file || !file.size) throw new Error("Choose a picture first.");
+      if (file.size > 8 * 1024 * 1024) throw new Error("That picture is too big. Choose one under 8 MB.");
+      await C.api("/me/avatar", { method: "PUT", body: { data: await squareJpeg(file, 256) } });
+      load();
+      return "";
+    }));
+
+    document.getElementById("photo-remove")?.addEventListener("click", async () => {
+      if (!confirm("Remove your profile picture?")) return;
+      try { await C.api("/me/avatar", { method: "DELETE" }); load(); }
+      catch (err) { alert(err.message); }
+    });
 
     // Sign-in & security
     document.getElementById("password").addEventListener("submit", (e) => C.submit(e, async (fd) => {
