@@ -18,131 +18,218 @@
     app_approved: "Approved an app",
     app_signed_in: "Signed in to an app",
     app_disconnected: "App disconnected",
+    email_changed: "Email address changed",
   };
+  const GENDERS = [["", "Prefer not to say"], ["female", "Female"], ["male", "Male"], ["other", "Other"]];
 
   document.getElementById("signout").addEventListener("click", async () => {
     try { await C.api("/auth/logout", { method: "POST" }); } catch { /* already ended */ }
     C.clearToken();
-    location.href = "signin.html";
+    location.href = "index.html";
   });
 
   async function load() {
-    if (!C.token()) return (location.href = "signin.html");
+    if (!C.token()) return (location.href = "index.html");
     try {
       const [me, sess, devs, sec, act, apps] = await Promise.all([
         C.api("/me"), C.api("/me/sessions"), C.api("/me/devices"),
         C.api("/me/security"), C.api("/me/activity"), C.api("/me/connected-apps"),
       ]);
-      render(me, sess.sessions, devs.devices, sec.backupCodesLeft, act.events, apps.apps);
+      render({
+        me, sessions: sess.sessions, devices: devs.devices,
+        backupLeft: sec.backupCodesLeft, events: act.events, apps: apps.apps,
+      });
     } catch (err) {
-      if (err.status === 401) { C.clearToken(); return (location.href = "signin.html"); }
-      app.innerHTML = `<section><p class="status bad">${C.esc(err.message)}</p></section>`;
+      if (err.status === 401) { C.clearToken(); return (location.href = "index.html"); }
+      app.innerHTML = `<section class="card"><p class="status bad">${C.esc(err.message)}</p></section>`;
     }
   }
 
-  function render(me, sessions, devices, backupLeft, events, apps) {
+  // A row that opens to show a form or more detail
+  function item(title, value, body, open) {
+    return `
+      <details class="item"${open ? " open" : ""}>
+        <summary>
+          <div class="item-text">
+            <div class="item-title">${title}</div>
+            <div class="item-value">${value}</div>
+          </div>
+        </summary>
+        <div class="item-body">${body}</div>
+      </details>`;
+  }
+
+  // A row that only shows information
+  function staticRow(title, value, note) {
+    return `
+      <div class="item static">
+        <div class="item-text">
+          <div class="item-title">${title}</div>
+          <div class="item-value">${value}</div>
+          ${note ? `<div class="item-note">${note}</div>` : ""}
+        </div>
+      </div>`;
+  }
+
+  function render(d) {
     const here = C.deviceId();
+    const me = d.me;
+    const initial = (me.displayName || me.username || "C").trim().charAt(0).toUpperCase();
+    const genderName = (GENDERS.find(([v]) => v === (me.gender || "")) || GENDERS[0])[1];
+
+    const passwordBody = `
+      <form id="password">
+        <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
+        <label>New password<input name="newPassword" type="password" minlength="8" required autocomplete="new-password">
+          <span class="muted">At least 8 characters, with letters and numbers.</span></label>
+        <div class="actions"><button>Change password</button></div>
+        <p class="status"></p>
+      </form>
+      <p class="item-note">Changing your password signs out your other sessions.</p>`;
+
+    const emailBody = `
+      <form id="email-start">
+        <label>New email address<input name="newEmail" type="email" required autocomplete="email"></label>
+        <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
+        <div class="actions"><button>Send code to new address</button></div>
+        <p class="status"></p>
+      </form>
+      <form id="email-confirm" hidden>
+        <p id="email-sent" class="muted"></p>
+        <label>6-digit code<input name="code" inputmode="numeric" maxlength="6" required></label>
+        <div class="actions"><button>Confirm new email</button><button type="button" class="ghost" id="email-cancel">Cancel</button></div>
+        <p class="status"></p>
+      </form>`;
+
+    const backupBody = `
+      <p class="item-note">Each code resets your password once, even without email. Making new codes replaces the old ones.</p>
+      <form id="backup">
+        <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
+        <div class="actions"><button>Make new codes</button></div>
+        <p class="status"></p>
+      </form>
+      <div id="codes"></div>`;
+
+    const devicesBody = `
+      <ul class="plain">${d.devices.map((x) => `
+        <li><span>${x.deviceId === here ? "<strong>This browser</strong>" : "Device"}
+          <br><span class="muted">Added ${C.fmt(x.addedAt)}</span></span>
+          ${x.deviceId === here
+            ? '<span class="muted">Use Sign out in the sidebar to end this session.</span>'
+            : `<button class="ghost" data-device="${C.esc(x.deviceId)}">Remove</button>`}</li>`).join("")
+        || "<li class='muted'>No trusted devices.</li>"}</ul>
+      <p class="item-note">A new device needs a code emailed to you. Removing a device also signs out its sessions.</p>`;
+
+    const sessionsBody = `
+      <ul class="plain">${d.sessions.map((s) => `
+        <li><span>${s.isCurrent ? "<strong>This session</strong>" : "Another session"}
+          ${s.deviceId === here ? " · this browser" : ""}<br>
+          <span class="muted">Last active ${C.fmt(s.lastUsedAt)}</span></span>
+          ${s.isCurrent ? "" : `<button class="ghost" data-session="${C.esc(s.sid)}">Sign out</button>`}</li>`).join("")
+        || "<li class='muted'>No other sessions.</li>"}</ul>
+      <div class="actions" style="margin-top:.9rem">
+        <button class="ghost" id="signout-others">Sign out other sessions</button>
+        <button class="danger" id="signout-all">Sign out everywhere</button>
+      </div>`;
+
+    const appsBody = `
+      <ul class="plain">${d.apps.map((a) => `
+        <li><span><strong>${C.esc(a.name)}</strong><br><span class="muted">Connected ${C.fmt(a.grantedAt)}</span></span>
+          <button class="ghost" data-app="${C.esc(a.clientId)}">Disconnect</button></li>`).join("")
+        || "<li class='muted'>No connected apps.</li>"}</ul>`;
+
+    const eventsBody = `
+      <ul class="plain">${d.events.map((ev) => `
+        <li><span>${C.esc(LABELS[ev.type] || String(ev.type).replace(/_/g, " "))}</span>
+          <span class="muted">${C.fmt(ev.createdAt)}</span></li>`).join("")
+        || "<li class='muted'>Nothing yet.</li>"}</ul>`;
+
     app.innerHTML = `
-      <section id="profile">
-        <h2>Profile</h2>
-        <p class="muted">Curie ID <strong>${C.esc(me.curieId)}</strong></p>
-        <form id="profile">
-          <label>Name<input name="displayName" maxlength="60" required value="${C.esc(me.displayName)}"></label>
-          <label>Username<input name="username" pattern="[a-z0-9_]{3,20}" required value="${C.esc(me.username)}"></label>
-          <label>Gender<select name="gender">
-            ${[["", "Prefer not to say"], ["female", "Female"], ["male", "Male"], ["other", "Other"]]
-              .map(([v, l]) => `<option value="${v}"${(me.gender || "") === v ? " selected" : ""}>${l}</option>`).join("")}
-          </select></label>
-          <p class="muted">Email: ${C.esc(me.email)} · Date of birth: ${C.esc(me.dateOfBirth)} (to change these, contact support)</p>
-          <button>Save changes</button><p class="status"></p>
-        </form>
-      </section>
-
-      <section id="email">
-        <h2>Email address</h2>
-        <p class="muted">Current: <strong>${C.esc(me.email)}</strong>. Used for sign-in codes and password resets.</p>
-        <form id="email-start">
-          <label>New email<input name="newEmail" type="email" required autocomplete="email"></label>
-          <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
-          <button>Send code to new email</button><p class="status"></p>
-        </form>
-        <form id="email-confirm" hidden>
-          <p id="email-sent" class="muted"></p>
-          <label>6-digit code<input name="code" inputmode="numeric" maxlength="6" required></label>
-          <div class="actions"><button>Confirm new email</button><button type="button" class="ghost" id="email-cancel">Cancel</button></div>
-          <p class="status"></p>
-        </form>
-      </section>
-
-      <section id="password">
-        <h2>Change password</h2>
-        <form id="password">
-          <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
-          <label>New password<input name="newPassword" type="password" minlength="8" required autocomplete="new-password"></label>
-          <button>Change password</button><p class="status"></p>
-        </form>
-        <p class="muted">Changing your password signs out your other sessions.</p>
-      </section>
-
-      <section id="backup">
-        <h2>Backup codes</h2>
-        <p class="muted">You have <strong>${backupLeft}</strong> unused. Each one resets your password once, even without email. Making new codes replaces the old ones.</p>
-        <form id="backup">
-          <label>Your password<input name="password" type="password" required autocomplete="current-password"></label>
-          <button>Make new codes</button><p class="status"></p>
-        </form>
-        <div id="codes"></div>
-      </section>
-
-      <section id="apps">
-        <h2>Connected apps</h2>
-        <p class="muted">Apps you've let sign you in with Curie ID. Disconnecting an app signs you out of it.</p>
-        <ul>${apps.map((a) => `
-          <li><span><strong>${C.esc(a.name)}</strong>
-            <br><span class="muted">Connected ${C.fmt(a.grantedAt)}</span></span>
-            <button class="ghost" data-app="${C.esc(a.clientId)}">Disconnect</button></li>`).join("")
-          || "<li class='muted'>No connected apps.</li>"}</ul>
-      </section>
-
-      <section id="sessions">
-        <h2>Where you're signed in</h2>
-        <ul>${sessions.map((s) => `
-          <li><span>${s.isCurrent ? "<strong>This session</strong>" : "Another session"}
-            ${s.deviceId === here ? " · this browser" : ""}<br>
-            <span class="muted">Last active ${C.fmt(s.lastUsedAt)}</span></span>
-            ${s.isCurrent ? "" : `<button class="ghost" data-session="${C.esc(s.sid)}">Sign out</button>`}</li>`).join("")
-          || "<li class='muted'>No other sessions.</li>"}</ul>
-        <div class="actions">
-          <button class="ghost" id="signout-others">Sign out other sessions</button>
-          <button class="danger" id="signout-all">Sign out everywhere</button>
+      <section class="group" id="home">
+        <div class="card hero">
+          <div class="avatar">${C.esc(initial)}</div>
+          <div>
+            <h2>${C.esc(me.displayName)}</h2>
+            <p class="muted">@${C.esc(me.username)} · Curie ID ${C.esc(me.curieId)}</p>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="stat-n">${d.backupLeft}</span><span class="stat-l">backup codes left</span></div>
+          <div class="stat"><span class="stat-n">${d.devices.length}</span><span class="stat-l">trusted devices</span></div>
+          <div class="stat"><span class="stat-n">${d.sessions.length}</span><span class="stat-l">signed-in sessions</span></div>
+          <div class="stat"><span class="stat-n">${d.apps.length}</span><span class="stat-l">connected apps</span></div>
         </div>
       </section>
 
-      <section id="devices">
-        <h2>Trusted devices</h2>
-        <p class="muted">A new device needs a code emailed to you. Removing a device also signs out its sessions.</p>
-        <ul>${devices.map((d) => `
-          <li><span>${d.deviceId === here ? "<strong>This browser</strong>" : "Device"}
-            <br><span class="muted">Added ${C.fmt(d.addedAt)}</span></span>
-            ${d.deviceId === here
-              ? '<span class="muted">Use Sign out above to end this browser\'s session.</span>'
-              : `<button class="ghost" data-device="${C.esc(d.deviceId)}">Remove</button>`}</li>`).join("")}</ul>
+      <section class="group" id="personal">
+        <h2>Personal info</h2>
+        <p class="muted">Information you share with apps that use Curie ID.</p>
+        <div class="items">
+          ${item("Name", C.esc(me.displayName), `
+            <form id="f-name">
+              <label>Name<input name="displayName" maxlength="60" required value="${C.esc(me.displayName)}"></label>
+              <div class="actions"><button>Save</button></div><p class="status"></p>
+            </form>`)}
+          ${item("Username", "@" + C.esc(me.username), `
+            <form id="f-username">
+              <label>Username<input name="username" pattern="[a-z0-9_]{3,20}" required value="${C.esc(me.username)}">
+                <span class="muted">3 to 20 characters: lowercase letters, numbers and underscores.</span></label>
+              <div class="actions"><button>Save</button></div><p class="status"></p>
+            </form>`)}
+          ${item("Gender", C.esc(genderName), `
+            <form id="f-gender">
+              <label>Gender<select name="gender">
+                ${GENDERS.map(([v, l]) => `<option value="${v}"${(me.gender || "") === v ? " selected" : ""}>${l}</option>`).join("")}
+              </select></label>
+              <div class="actions"><button>Save</button></div><p class="status"></p>
+            </form>`)}
+          ${staticRow("Date of birth", C.esc(me.dateOfBirth), "To change this, contact support.")}
+        </div>
       </section>
 
-      <section id="activity">
-        <h2>Recent activity</h2>
-        <ul>${events.map((ev) => `
-          <li><span>${C.esc(LABELS[ev.type] || String(ev.type).replace(/_/g, " "))}</span>
-            <span class="muted">${C.fmt(ev.createdAt)}</span></li>`).join("")
-          || "<li class='muted'>Nothing yet.</li>"}</ul>
+      <section class="group" id="security">
+        <h2>Sign-in & security</h2>
+        <p class="muted">How you sign in, and how to get back in if you lose access.</p>
+        <div class="items">
+          ${item("Password", "••••••••", passwordBody)}
+          ${item("Email address", C.esc(me.email), emailBody)}
+          ${item("Backup codes", `${d.backupLeft} left`, backupBody)}
+          ${item("Trusted devices", `${d.devices.length} device(s)`, devicesBody)}
+          ${item("Signed-in sessions", `${d.sessions.length} active`, sessionsBody)}
+        </div>
+      </section>
+
+      <section class="group" id="apps">
+        <h2>Apps & access</h2>
+        <p class="muted">Apps that can sign you in with Curie ID.</p>
+        <div class="items">
+          ${item("Connected apps", `${d.apps.length} app(s)`, appsBody)}
+          <div class="item static"><a class="item-link" href="developers.html">Manage developer apps →</a></div>
+        </div>
+      </section>
+
+      <section class="group" id="activity">
+        <h2>Activity & history</h2>
+        <p class="muted">Recent sign-ins and changes to your account.</p>
+        <div class="items">
+          ${item("Recent activity", `${d.events.length} event(s)`, eventsBody, true)}
+        </div>
       </section>`;
 
-    document.getElementById("profile").addEventListener("submit", (e) => C.submit(e, async (fd) => {
-      await C.api("/me", {
-        method: "PATCH",
-        body: { displayName: fd.get("displayName"), username: fd.get("username"), gender: fd.get("gender") || null },
+    // Personal info: each field saves on its own
+    const saveField = (id, body) => document.getElementById(id).addEventListener("submit", (e) =>
+      C.submit(e, async (fd) => { await C.api("/me", { method: "PATCH", body: body(fd) }); return "Saved."; }));
+    saveField("f-name", (fd) => ({ displayName: fd.get("displayName") }));
+    saveField("f-username", (fd) => ({ username: fd.get("username") }));
+    saveField("f-gender", (fd) => ({ gender: fd.get("gender") || null }));
+
+    // Sign-in & security
+    document.getElementById("password").addEventListener("submit", (e) => C.submit(e, async (fd) => {
+      const r = await C.api("/me/password", {
+        body: { currentPassword: fd.get("currentPassword"), newPassword: fd.get("newPassword") },
       });
-      return "Saved.";
+      e.target.reset();
+      return `Password changed. ${r.sessionsEnded} other session(s) signed out.`;
     }));
 
     document.getElementById("email-start").addEventListener("submit", (e) => C.submit(e, async (fd) => {
@@ -164,20 +251,12 @@
       load();
     });
 
-    document.getElementById("password").addEventListener("submit", (e) => C.submit(e, async (fd) => {
-      const r = await C.api("/me/password", {
-        body: { currentPassword: fd.get("currentPassword"), newPassword: fd.get("newPassword") },
-      });
-      e.target.reset();
-      return `Password changed. ${r.sessionsEnded} other session(s) signed out.`;
-    }));
-
     document.getElementById("backup").addEventListener("submit", (e) => C.submit(e, async (fd) => {
       const r = await C.api("/account/backup-codes", { body: { password: fd.get("password") } });
       e.target.reset();
       document.getElementById("codes").innerHTML = `
         <h3>Your new backup codes</h3>
-        <p class="muted"><strong>Save these now.</strong> They won't be shown again.</p>
+        <p class="item-note"><strong>Save these now.</strong> They won't be shown again.</p>
         <pre>${r.codes.map((c) => C.esc(c)).join("\n")}</pre>`;
       return "New codes made.";
     }));
@@ -191,7 +270,7 @@
       if (!confirm("Sign out everywhere? This also signs out this browser.")) return;
       try { await C.api("/me/sessions/revoke-all", { method: "POST" }); } catch { /* ended anyway */ }
       C.clearToken();
-      location.href = "signin.html";
+      location.href = "index.html";
     });
 
     app.onclick = async (e) => {
