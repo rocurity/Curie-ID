@@ -2,10 +2,71 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=signup.html">
-<title>Curie ID</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curie ID · Sign in</title>
+<link rel="stylesheet" href="curie.css">
 </head>
 <body>
-<p>Opening Curie ID… <a href="signup.html">Continue to sign up</a></p>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <a class="brand" href="index.html">Curie ID</a>
+
+    <form id="signin">
+      <h1>Sign in</h1>
+      <label>Curie ID, username or email
+        <input name="identifier" required autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+      <label>Password
+        <input name="password" type="password" required autocomplete="current-password"></label>
+      <button>Sign in</button>
+      <button type="button" class="ghost" id="forgot-open">Forgot password?</button>
+      <p class="status" role="status"></p>
+    </form>
+
+    <div class="signup-prompt">
+      <span class="muted">Don't have an account?</span>
+      <a class="btn ghost" href="signup.html">Sign up</a>
+    </div>
+
+    <form id="code" hidden>
+      <h1>Enter your code</h1>
+      <p id="code-text" class="muted"></p>
+      <label>6-digit code
+        <input name="code" inputmode="numeric" maxlength="6" required></label>
+      <button>Confirm</button>
+      <button type="button" class="ghost" id="code-cancel">Cancel</button>
+      <p class="status" role="status"></p>
+    </form>
+
+    <form id="forgot" hidden>
+      <h1>Reset password</h1>
+      <p class="muted">Enter your Curie ID, username or email. If an account matches, we'll email a code.</p>
+      <label>Curie ID, username or email
+        <input name="identifier" required></label>
+      <button>Send code</button>
+      <p class="status" role="status"></p>
+    </form>
+
+    <form id="reset" hidden>
+      <h1>Choose a new password</h1>
+      <p class="muted">Enter the 6-digit code we emailed you, or one of your backup codes.</p>
+      <label>6-digit code
+        <input name="code" inputmode="numeric" maxlength="6"></label>
+      <label>Or a backup code
+        <input name="backupCode" autocomplete="off"></label>
+      <label>New password
+        <input name="newPassword" type="password" minlength="8" required autocomplete="new-password">
+        <span class="hint">At least 8 characters, with letters and numbers.</span></label>
+      <button>Set new password</button>
+      <p class="status" role="status"></p>
+    </form>
+    <div class="auth-foot">
+      <a href="developers.html">For developers</a>
+      <a href="account.html">Your account</a>
+    </div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="curie.js"></script>
+<script src="signin.js"></script>
 </body>
 </html>

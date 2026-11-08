@@ -43,7 +43,7 @@ Authorization: Bearer ACCESS_TOKEN
 You get back:
 
 ```json
-{ "sub": "123456789012c", "name": "Peter Cherub", "preferred_username": "peter" }
+{ "sub": "123456789c", "name": "Peter Cherub", "preferred_username": "peter" }
 ```
 
 `sub` is the user's Curie ID. Use it as the unique key for the user in your app. Curie ID never shares email, date of birth or gender with apps.

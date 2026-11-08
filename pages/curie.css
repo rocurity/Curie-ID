@@ -201,3 +201,26 @@ tr[data-id]:hover td { background: #faf9f6; }
   .nav { order: 3; width: 100%; }
   .auth-card { padding: 1.5rem; }
 }
+
+/* ---- links between pages ---- */
+.btn {
+  display: block; text-align: center; font: inherit; font-weight: 600; font-size: .95rem;
+  padding: .75rem 1.15rem; border-radius: 9px; background: var(--accent); color: #fff;
+  border: 1px solid transparent;
+}
+.btn:hover { background: var(--accent-hover); color: #fff; text-decoration: none; }
+.btn.ghost { background: var(--surface); color: var(--ink); border-color: var(--field-line); }
+.btn.ghost:hover { background: #faf8f4; color: var(--ink); }
+.choices { display: grid; gap: .75rem; margin-top: 1.5rem; }
+.auth-foot {
+  margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; font-size: .9rem;
+}
+.auth-foot a { color: var(--muted); }
+.auth-foot a:hover { color: var(--accent); }
+
+.signup-prompt {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  margin-top: .25rem; padding-top: 1rem; border-top: 1px solid var(--line);
+}
+.signup-prompt .btn { padding: .55rem 1rem; }

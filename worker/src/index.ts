@@ -39,7 +39,7 @@ const MAX_BODY = 16_384;
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CURIE_RE = /^\d{12}c$/;
+const CURIE_RE = /^\d{9}c$/;
 const GENDERS = ["male", "female", "other", "prefer_not_to_say"];
 const WRONG_CODE = "That code isn't right, or it has expired. Ask for a new one if needed.";
 
@@ -78,7 +78,7 @@ function randomDigits(n: number): string {
 }
 
 function newCurieId(): string {
-  return `${randomDigits(12)}c`;
+  return `${randomDigits(9)}c`;
 }
 
 function constantTimeEqualStr(a: string, b: string): boolean {
@@ -1069,7 +1069,7 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   if (m === "POST" && path === "/me/sessions/revoke-all") return signOutEverywhere(env, req);
   if (m === "POST" && path === "/account/backup-codes") return newBackupCodes(env, req);
 
-  const userMatch = path.match(/^\/user\/(\d{12}c)$/i);
+  const userMatch = path.match(/^\/user\/(\d{9}c)$/i);
   if (m === "GET" && userMatch) return publicUser(env, userMatch[1].toLowerCase());
 
   if (m === "GET" && path === "/admin/hash-timing") return hashTiming(env, req);
@@ -1428,7 +1428,7 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
   }
 
   // One account, with its counts, connected apps and recent events
-  const detail = path.match(/^\/admin\/users\/(\d{12}c)$/i);
+  const detail = path.match(/^\/admin\/users\/(\d{9}c)$/i);
   if (M === "GET" && detail) {
     const id = detail[1].toLowerCase();
     const u = await env.DB.prepare("SELECT * FROM users WHERE curie_id = ?").bind(id).first<Record<string, any>>();
@@ -1461,7 +1461,7 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
   }
 
   // Suspend or restore. Only confirmed accounts can be changed here.
-  const st = path.match(/^\/admin\/users\/(\d{12}c)\/status$/i);
+  const st = path.match(/^\/admin\/users\/(\d{9}c)\/status$/i);
   if (M === "POST" && st) {
     const id = st[1].toLowerCase();
     const b = await readJson(req);
@@ -1480,7 +1480,7 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
   }
 
   // End every session for an account
-  const rv = path.match(/^\/admin\/users\/(\d{12}c)\/revoke-sessions$/i);
+  const rv = path.match(/^\/admin\/users\/(\d{9}c)\/revoke-sessions$/i);
   if (M === "POST" && rv) {
     const id = rv[1].toLowerCase();
     const r = await env.DB.prepare("UPDATE sessions SET revoked = 1 WHERE curie_id = ?").bind(id).run();

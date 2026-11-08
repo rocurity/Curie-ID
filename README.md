@@ -95,7 +95,7 @@ These are from Cloudflare's and Brevo's published free-plan pages. Check your da
 ## Known trade-offs
 
 - **Sign-up reveals registered emails.** When someone tries to register with an email already in use, the message says so. That's a deliberate usability choice, and it means someone can check whether an email has an account.
-- **Curie IDs are 12 digits plus a letter.** Chosen so collisions stay rare at large user counts. Changing the length later means updating the format check.
+- **Curie IDs are 9 digits plus the letter c** (for example 123456789c).
 - **Limits can be shared by people on one network.** Sign-in limits are per IP, so a shared network (an office, a mobile carrier) can hit them.
 
 ## Not included (planned next)
