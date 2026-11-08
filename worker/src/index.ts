@@ -1348,6 +1348,42 @@ async function devRoute(env: Env, req: Request, path: string): Promise<Response>
   return json({ error: "Not found" }, 404);
 }
 
+/** One-off: gives every account that still has a 12-digit ID a new 9-digit ID, across all tables. */
+async function migrateOldIds(env: Env): Promise<Response> {
+  const old = await env.DB.prepare("SELECT * FROM users WHERE length(curie_id) = 13").all<Record<string, any>>();
+  const moved: { from: string; to: string }[] = [];
+  for (const u of old.results) {
+    let newId = "";
+    for (let i = 0; i < 10 && !newId; i++) {
+      const candidate = newCurieId();
+      const taken = await env.DB.prepare("SELECT 1 AS x FROM users WHERE curie_id = ?").bind(candidate).first();
+      if (!taken) newId = candidate;
+    }
+    if (!newId) throw new HttpError(500, "Could not find a free ID. Try again.");
+    const from = u.curie_id as string;
+    // One transaction: park the old row under temporary unique values, add the new row, move everything, drop the old row.
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET username = ?, email = ? WHERE curie_id = ?")
+        .bind(`old_${from}`, `old_${from}@moved.invalid`, from),
+      env.DB.prepare(
+        "INSERT INTO users (curie_id, username, email, display_name, date_of_birth, gender, password_hash, status, created_at, backup_codes, pending_email) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(newId, u.username, u.email, u.display_name, u.date_of_birth, u.gender, u.password_hash, u.status,
+        u.created_at, u.backup_codes ?? null, u.pending_email ?? null),
+      env.DB.prepare("UPDATE sessions SET curie_id = ? WHERE curie_id = ?").bind(newId, from),
+      env.DB.prepare("UPDATE devices SET curie_id = ? WHERE curie_id = ?").bind(newId, from),
+      env.DB.prepare("UPDATE codes SET curie_id = ?, id = REPLACE(id, ?, ?) WHERE curie_id = ?").bind(newId, from, newId, from),
+      env.DB.prepare("UPDATE events SET curie_id = ? WHERE curie_id = ?").bind(newId, from),
+      env.DB.prepare("UPDATE grants SET curie_id = ? WHERE curie_id = ?").bind(newId, from),
+      env.DB.prepare("UPDATE oauth_codes SET curie_id = ? WHERE curie_id = ?").bind(newId, from),
+      env.DB.prepare("UPDATE dev_apps SET owner_curie_id = ? WHERE owner_curie_id = ?").bind(newId, from),
+      env.DB.prepare("DELETE FROM users WHERE curie_id = ?").bind(from),
+    ]);
+    moved.push({ from, to: newId });
+  }
+  return json({ moved, count: moved.length });
+}
+
 /** Signs in the admin with the ADMIN_PASSWORD secret. Returns a token that lasts two hours. */
 async function adminLogin(env: Env, req: Request, ip: string): Promise<Response> {
   if (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 12) {
@@ -1410,6 +1446,8 @@ async function adminRoute(env: Env, req: Request, path: string, ip: string): Pro
   await requireAdmin(env, req, ip);
   const M = req.method;
   const url = new URL(req.url);
+
+  if (M === "POST" && path === "/admin/migrate-ids") return migrateOldIds(env);
 
   // Search (or the newest 50 accounts when there's no search term)
   if (M === "GET" && path === "/admin/users") {

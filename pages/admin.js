@@ -93,6 +93,13 @@
       </section>
       <div id="detail"></div>
       <section class="card">
+        <h2>Maintenance</h2>
+        <p class="muted">Gives every account with an old 12-digit Curie ID a new 9-digit one. Their existing sign-ins end, so they'll sign in again.</p>
+        <div class="actions"><button id="maint" class="ghost">Convert old IDs</button></div>
+        <div id="maint-out"></div>
+      </section>
+
+      <section class="card">
         <h2>Recent activity</h2>
         <div id="activity"></div>
       </section>`;
@@ -102,6 +109,21 @@
     });
     search("");
     loadActivity();
+    document.getElementById("maint").addEventListener("click", async () => {
+      if (!confirm("Convert every old 12-digit ID to a 9-digit ID now? This can't be undone.")) return;
+      const out = document.getElementById("maint-out");
+      out.textContent = "Converting…";
+      try {
+        const r = await api("/admin/migrate-ids", { method: "POST", body: {} });
+        out.innerHTML = r.count
+          ? `<p class="status ok">Converted ${r.count} account(s):</p><ul>${r.moved.map((m) =>
+              `<li><span>${esc(m.from)}</span><strong>${esc(m.to)}</strong></li>`).join("")}</ul>`
+          : `<p class="muted">No accounts with old IDs.</p>`;
+        search(lastQuery);
+      } catch (err) {
+        out.innerHTML = `<p class="status bad">${esc(err.message)}</p>`;
+      }
+    });
   }
 
   async function search(q) {
