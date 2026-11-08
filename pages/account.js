@@ -71,6 +71,20 @@
       </div>`;
   }
 
+  const PARTS = ["home", "personal", "security", "apps", "activity"];
+
+  // Only the part named in the address (#security etc.) is shown; Home is the default
+  function showPart() {
+    const wanted = (location.hash || "#home").slice(1);
+    const id = PARTS.includes(wanted) ? wanted : "home";
+    document.querySelectorAll("section.group").forEach((sec) => { sec.hidden = sec.id !== id; });
+    document.querySelectorAll(".side-link").forEach((a) => {
+      a.setAttribute("aria-current", a.getAttribute("href") === "#" + id ? "page" : "false");
+    });
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", showPart);
+
   function render(d) {
     const here = C.deviceId();
     const me = d.me;
@@ -172,6 +186,9 @@
           <div class="stat"><span class="stat-n">${d.sessions.length}</span><span class="stat-l">signed-in sessions</span></div>
           <div class="stat"><span class="stat-n">${d.apps.length}</span><span class="stat-l">connected apps</span></div>
         </div>
+        ${d.backupLeft === 0
+          ? '<p class="item-note" style="margin-top:.9rem">You have no backup codes. <a href="#security">Make some in Sign-in & security</a>.</p>'
+          : ""}
       </section>
 
       <section class="group" id="personal">
@@ -229,6 +246,8 @@
           ${item("Recent activity", `${d.events.length} event(s)`, eventsBody, true)}
         </div>
       </section>`;
+
+    showPart();
 
     // Personal info: each field saves on its own
     const saveField = (id, body) => document.getElementById(id).addEventListener("submit", (e) =>
