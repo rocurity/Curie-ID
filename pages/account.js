@@ -31,14 +31,7 @@
   async function load() {
     if (!C.token()) return (location.href = "index.html");
     try {
-      const [me, sess, devs, sec, act, apps] = await Promise.all([
-        C.api("/me"), C.api("/me/sessions"), C.api("/me/devices"),
-        C.api("/me/security"), C.api("/me/activity"), C.api("/me/connected-apps"),
-      ]);
-      render({
-        me, sessions: sess.sessions, devices: devs.devices,
-        backupLeft: sec.backupCodesLeft, events: act.events, apps: apps.apps,
-      });
+      render(await C.api("/me/overview"));
     } catch (err) {
       if (err.status === 401) { C.clearToken(); return (location.href = "index.html"); }
       app.innerHTML = `<section class="card"><p class="status bad">${C.esc(err.message)}</p></section>`;

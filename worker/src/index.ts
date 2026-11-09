@@ -1063,6 +1063,7 @@ async function route(req: Request, env: Env, path: string, ip: string, ctx: Exec
   const deviceMatch = path.match(/^\/me\/devices\/([^/]+)\/revoke$/);
   if (m === "POST" && deviceMatch) return revokeDevice(env, req, safeDecode(deviceMatch[1]));
   if (m === "GET" && path === "/me/activity") return activity(env, req);
+  if (m === "GET" && path === "/me/overview") return overview(env, req);
   if (m === "POST" && path === "/me/email/start") return startEmailChange(env, req);
   if (m === "PUT" && path === "/me/avatar") return uploadAvatar(env, req);
   if (m === "DELETE" && path === "/me/avatar") return deleteAvatar(env, req);
@@ -1240,7 +1241,8 @@ async function serveAvatar(env: Env, curieId: string): Promise<Response> {
     .bind(curieId).first<Record<string, any>>();
   if (!row) return json({ error: "No picture" }, 404);
   const bytes = Uint8Array.from(atob(row.data), (c) => c.charCodeAt(0));
-  return new Response(bytes, { headers: { "Content-Type": row.mime, "Cache-Control": "public, max-age=86400" } });
+  // The address changes whenever the picture changes (?v=...), so it can be cached for a year.
+  return new Response(bytes, { headers: { "Content-Type": row.mime, "Cache-Control": "public, max-age=31536000, immutable" } });
 }
 
 /** Admin: permanently deletes an account and everything linked to it. Needs the Curie ID typed back. */
@@ -1271,6 +1273,55 @@ async function deleteAccount(env: Env, curieId: string, confirmId: string): Prom
   await env.DB.batch(stmts);
   invalidateApps();
   return json({ ok: true, appsRemoved: owned.results.length });
+}
+
+/** Everything the account page needs, in one request. */
+async function overview(env: Env, req: Request): Promise<Response> {
+  const { curieId, sid } = await authenticate(env, req);
+  const [u, sess, devs, act, grants, avatar] = await Promise.all([
+    env.DB.prepare("SELECT * FROM users WHERE curie_id = ?").bind(curieId).first<Record<string, any>>(),
+    env.DB.prepare(
+      "SELECT sid, device_id, created_at, last_used_at FROM sessions " +
+        "WHERE curie_id = ? AND revoked = 0 AND expires_at > ? ORDER BY last_used_at DESC",
+    ).bind(curieId, Date.now()).all<Record<string, any>>(),
+    env.DB.prepare("SELECT device_id, added_at FROM devices WHERE curie_id = ? ORDER BY added_at DESC")
+      .bind(curieId).all<Record<string, any>>(),
+    env.DB.prepare("SELECT type, created_at FROM events WHERE curie_id = ? ORDER BY created_at DESC LIMIT 30")
+      .bind(curieId).all<Record<string, any>>(),
+    env.DB.prepare("SELECT client_id, granted_at FROM grants WHERE curie_id = ? ORDER BY granted_at DESC")
+      .bind(curieId).all<Record<string, any>>(),
+    env.DB.prepare("SELECT updated_at FROM avatars WHERE curie_id = ?").bind(curieId).first<{ updated_at: number }>(),
+  ]);
+  if (!u) throw new HttpError(404, "Account not found");
+  return json({
+    me: {
+      curieId: u.curie_id,
+      displayName: u.display_name,
+      username: u.username,
+      email: u.email,
+      dateOfBirth: u.date_of_birth,
+      gender: u.gender,
+      createdAt: u.created_at,
+      avatarVersion: avatar?.updated_at ?? null,
+    },
+    sessions: sess.results.map((x) => ({
+      sid: x.sid,
+      deviceId: x.device_id || null,
+      viaApp: false,
+      appName: null,
+      createdAt: x.created_at,
+      lastUsedAt: x.last_used_at,
+      isCurrent: x.sid === sid,
+    })),
+    devices: devs.results.map((d) => ({ deviceId: d.device_id, addedAt: d.added_at })),
+    backupLeft: u.backup_codes ? (JSON.parse(u.backup_codes) as string[]).length : 0,
+    events: act.results.map((e) => ({ type: e.type, createdAt: e.created_at })),
+    apps: grants.results.map((g) => ({
+      clientId: g.client_id,
+      name: findApp(env, g.client_id)?.name ?? g.client_id,
+      grantedAt: g.granted_at,
+    })),
+  });
 }
 
 async function securityInfo(env: Env, req: Request): Promise<Response> {
